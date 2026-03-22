@@ -356,6 +356,12 @@ body.dark .btn-p{background:var(--green);}
   </div>
   <div id="recsOutput" style="display:none;">
     <div id="recsTimestamp" style="font-size:11px;font-family:var(--mono);color:var(--muted);margin-bottom:16px;"></div>
+    <!-- DCA Summary from AI recommendations -->
+    <div style="background:var(--green-d);border:1px solid rgba(26,107,58,.18);border-radius:12px;padding:16px 18px;margin-bottom:18px;">
+      <div class="slbl" style="margin-bottom:12px;color:var(--green);">DCA sugerido esta semana — basado en recomendaciones</div>
+      <div id="recsDCASummary" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px;"></div>
+      <div style="font-size:11px;font-family:var(--mono);color:var(--muted);margin-top:10px;" id="recsDCATotal"></div>
+    </div>
     <div id="recsBuyGrid" class="rec-grid" style="margin-bottom:18px;"></div>
     <div class="divider"></div>
     <div class="slbl" style="margin-bottom:10px;">Posiciones a reducir o eliminar</div>
@@ -1025,6 +1031,18 @@ Responde SOLO con JSON sin texto extra ni markdown:
             <span class="rc-val">${(r.corr_sp500||0).toFixed(2)}</span></div>
         </div>
       </div>`).join('');
+
+    // DCA summary — only items with dca_weekly defined
+    const dcaItems=(parsed.buy||[]).filter(r=>r.dca_weekly>0);
+    const dcaTotal=dcaItems.reduce((s,r)=>s+(r.dca_weekly||0),0);
+    document.getElementById('recsDCASummary').innerHTML=dcaItems.map(r=>`
+      <div style="background:var(--surface);border-radius:8px;padding:10px 12px;border:1px solid var(--border);">
+        <div style="font-family:var(--mono);font-size:12px;font-weight:500;color:var(--text);">${r.ticker}</div>
+        <div style="font-size:18px;font-weight:700;color:var(--green);margin:2px 0;">$${r.dca_weekly}</div>
+        <div style="font-size:10px;font-family:var(--mono);color:var(--muted);">${r.account||'MX'} · /semana</div>
+      </div>`).join('');
+    document.getElementById('recsDCATotal').textContent=
+      `Total sugerido: $${dcaTotal}/sem de $300 disponibles · Restante: $${Math.max(0,300-dcaTotal)}/sem`;
 
     document.getElementById('recsReduceList').innerHTML=(parsed.reduce||[]).map(r=>`
       <div style="display:flex;gap:12px;padding:12px 16px;background:var(--surface);border:1px solid var(--border);border-radius:10px;margin-bottom:8px;">
