@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Roche tracker · Ricardo</title>
+<title>Portfolio Live v2 · Ricardo</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700&family=JetBrains+Mono:wght@300;400;500&display=swap');
@@ -186,7 +186,7 @@ body.dark .btn-p{background:var(--green);}
 <!-- LOGIN -->
 <div id="loginScreen">
   <div id="loginBox">
-    <h2>Roche tracker</h2>
+    <h2>Portfolio Live</h2>
     <p>Ricardo · Acceso privado</p>
     <input id="loginInput" type="password" placeholder="Contraseña" onkeydown="if(event.key==='Enter')checkLogin()">
     <button id="loginBtn" onclick="checkLogin()">Entrar</button>
@@ -218,7 +218,7 @@ body.dark .btn-p{background:var(--green);}
 
 <div class="hdr">
   <div>
-    <div class="hdr-badge">Roche tracker · Ricardo</div>
+    <div class="hdr-badge">Portfolio Live v2 · Ricardo</div>
     <div class="hdr-total" id="hdrTotal">—</div>
     <div class="hdr-sub" id="hdrSub">Portafolio activo · cargando...</div>
   </div>
@@ -568,7 +568,7 @@ let sheetUrl = localStorage.getItem('plv2_url_main')||'https://script.google.com
 let cryptoUrl = localStorage.getItem('plv2_url_crypto')||'https://script.google.com/macros/s/AKfycbxbs-aX6hOhRfFl8CaFK6EmWDq6713u8pg8cCigpXUP49MLdf9rxHYDTYxpNKF3FNJz/exec?sheet=Crypto';
 let acctFilter = 'active';
 let sortCol = 'valueUSD';
-let sortDir = -1; // -1 = desc, 1 = asc
+let sortDir = 1; // 1 = desc, -1 = asc
 let radarChart=null, donutChart=null, corrProgressChart=null;
 
 // ─── HELPERS ───
@@ -618,16 +618,17 @@ async function fetchAll(){
     const json=await res.json();
     if(json.ok&&Array.isArray(json.positions)){
       json.positions.filter(p=>p.ticker&&p.precio>0).forEach(lp=>{
-        // Normalize category: treat metals/hedge interchangeably as hedge
         const cat = (lp.categoria==='metals'||lp.categoria==='hedge') ? 'hedge' : (lp.categoria||'index');
+        const units = parseFloat(lp.acciones)||1;
+        const cost  = parseFloat(lp.costBase)||lp.precio;
         const idx=positions.findIndex(p=>p.ticker===lp.ticker&&p.acct===lp.cuenta);
         if(idx>=0){
-          positions[idx].priceUSD=lp.precio;
-          positions[idx].valueUSD=positions[idx].units*lp.precio;
-          positions[idx].cat=cat;
+          positions[idx].priceUSD   = lp.precio;
+          positions[idx].units      = units;
+          positions[idx].costTotalUSD = units * cost;
+          positions[idx].valueUSD   = units * lp.precio;
+          positions[idx].cat        = cat;
         } else {
-          const units=parseFloat(lp.acciones)||1;
-          const cost=parseFloat(lp.costBase)||lp.precio;
           positions.push({ticker:lp.ticker,name:lp.nombre||lp.ticker,units,costUSD:cost,priceUSD:lp.precio,cat,acct:lp.cuenta||'MX',valueUSD:units*lp.precio,costTotalUSD:units*cost});
         }
       });
@@ -646,8 +647,15 @@ async function fetchAll(){
         };
         json2.positions.filter(p=>p.ticker&&p.precio>0).forEach(lp=>{
           const dashTicker = CGID_TO_TICKER[lp.ticker.toLowerCase()] || lp.ticker.toUpperCase();
+          const units = parseFloat(lp.unidades)||1;
+          const cost  = parseFloat(lp.costBase)||lp.precio;
           const idx=positions.findIndex(p=>p.ticker===dashTicker&&p.acct===lp.cuenta);
-          if(idx>=0){positions[idx].priceUSD=lp.precio;positions[idx].valueUSD=positions[idx].units*lp.precio;}
+          if(idx>=0){
+            positions[idx].priceUSD    = lp.precio;
+            positions[idx].units       = units;
+            positions[idx].costTotalUSD = units * cost;
+            positions[idx].valueUSD    = units * lp.precio;
+          }
         });
         }
       }catch(e){}
@@ -758,7 +766,7 @@ function renderOverview(){
 // ─── POSITIONS ───
 function sortBy(col){
   if(sortCol===col) sortDir*=-1;
-  else{sortCol=col;sortDir=-1;}
+  else{sortCol=col;sortDir=1;}
   renderPositions();
 }
 function renderPositions(){
@@ -777,7 +785,7 @@ function renderPositions(){
   // Update header indicators
   ['ticker','cat','acct','priceUSD','units','valueUSD','pnlPct','weight'].forEach(c=>{
     const el=document.getElementById('sh-'+c);
-    if(el) el.textContent=sortCol===c?(sortDir===-1?' ↓':' ↑'):'';
+    if(el) el.textContent=sortCol===c?(sortDir===1?' ↓':' ↑'):'';
   });
 
   const sorted=[...filtered].sort((a,b)=>{
