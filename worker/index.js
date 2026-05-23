@@ -42,20 +42,33 @@ export default {
     const auth = request.headers.get('Authorization') || '';
     const idToken = auth.startsWith('Bearer ') ? auth.slice(7) : '';
     if (!idToken) {
-      return json({ error: 'No autorizado: falta sesión de Google' }, 401, request);
+      return json({ error: 'No autorizado: falta sesión de Google', reason: 'no_token' }, 401, request);
     }
 
     const info = await fetch(
       'https://oauth2.googleapis.com/tokeninfo?id_token=' + encodeURIComponent(idToken)
     ).then(r => (r.ok ? r.json() : null)).catch(() => null);
 
-    const authorized = info
-      && info.aud === CLIENT_ID
-      && info.email_verified === 'true'
-      && ALLOWED_EMAILS.includes(String(info.email || '').toLowerCase());
+    if (!info) {
+      // tokeninfo rechazó el token: normalmente expirado o inválido
+      return json({ error: 'Token inválido o expirado. Vuelve a iniciar sesión.', reason: 'token_invalid_or_expired' }, 403, request);
+    }
 
-    if (!authorized) {
-      return json({ error: 'Acceso denegado' }, 403, request);
+    const emailVerified = info.email_verified === true || info.email_verified === 'true';
+    const checks = {
+      aud_ok: info.aud === CLIENT_ID,
+      email_verified: emailVerified,
+      email_allowed: ALLOWED_EMAILS.includes(String(info.email || '').toLowerCase()),
+    };
+
+    if (!(checks.aud_ok && checks.email_verified && checks.email_allowed)) {
+      return json({
+        error: 'Acceso denegado',
+        reason: 'checks_failed',
+        checks,
+        email: info.email || null,
+        aud_recibido: info.aud || null,
+      }, 403, request);
     }
 
     // ── Reenviar a Anthropic ──
