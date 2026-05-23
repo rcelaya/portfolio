@@ -57,42 +57,70 @@ function handleCredential(resp){
     return;
   }
   sessionStorage.setItem(ID_TOKEN_KEY, resp.credential);
+  scheduleTokenRefresh();
   grantAccess();
 }
 
+// Renueva el token de Google de forma silenciosa ~5 min antes de que expire,
+// para no tener que volver a iniciar sesion cada hora.
+let _refreshTimer=null;
+function scheduleTokenRefresh(){
+  if(_refreshTimer) clearTimeout(_refreshTimer);
+  const claims=decodeJwt(sessionStorage.getItem(ID_TOKEN_KEY));
+  if(!claims || !claims.exp) return;
+  const ms=(claims.exp*1000) - Date.now() - 5*60*1000; // 5 min antes de expirar
+  _refreshTimer=setTimeout(()=>{
+    try{ google.accounts.id.prompt(); }catch(e){} // One Tap reemite credencial sin UI si hay sesion activa
+  }, Math.max(ms, 1000));
+}
+
 function logout(){
+  if(_refreshTimer) clearTimeout(_refreshTimer);
   sessionStorage.removeItem(ID_TOKEN_KEY);
   try{ google.accounts.id.disableAutoSelect(); }catch(e){}
   location.reload();
 }
 
-function initAuth(){
+let _gisInit=false;
+function gisInitialize(){
+  if(_gisInit) return true;
   if(!(window.google && google.accounts && google.accounts.id)) return false;
   google.accounts.id.initialize({ client_id: AUTH.CLIENT_ID, callback: handleCredential, auto_select: true });
-  const btn=document.getElementById('gsiButton');
-  if(btn) google.accounts.id.renderButton(btn, {theme:'filled_black', size:'large', text:'signin_with', shape:'pill'});
-  google.accounts.id.prompt();
+  _gisInit=true;
   return true;
 }
 
-function bootAuth(){
-  // Restaura sesion valida sin volver a pedir login (token vive ~1h)
-  const saved=sessionStorage.getItem(ID_TOKEN_KEY);
-  if(saved && isValidClaims(decodeJwt(saved))){ grantAccess(); return; }
-  sessionStorage.removeItem(ID_TOKEN_KEY);
+function showSignInButton(){
+  const btn=document.getElementById('gsiButton');
+  if(btn) google.accounts.id.renderButton(btn, {theme:'filled_black', size:'large', text:'signin_with', shape:'pill'});
+  google.accounts.id.prompt();
+}
 
+// Espera a que cargue la libreria de Google (script async), inicializa GIS y ejecuta cb.
+function waitForGis(cb){
+  let tries=0;
+  (function wait(){
+    if(gisInitialize()){ if(cb) cb(); return; }
+    if(tries++>100){ const h=document.getElementById('loginHint'); if(h) h.textContent='No se pudo cargar Google Sign-In. Revisa tu conexion.'; return; }
+    setTimeout(wait,100);
+  })();
+}
+
+function bootAuth(){
   const hint=document.getElementById('loginHint');
   if(!AUTH.CLIENT_ID || !AUTH.ALLOWED_EMAILS.length){
     if(hint) hint.innerHTML='⚠ Falta configurar el login. Edita <code>app.js</code> (AUTH.CLIENT_ID y AUTH.ALLOWED_EMAILS). Ver README.';
     return;
   }
-  // Espera a que cargue la libreria de Google (script async)
-  let tries=0;
-  (function wait(){
-    if(initAuth()) return;
-    if(tries++>100){ if(hint) hint.textContent='No se pudo cargar Google Sign-In. Revisa tu conexion.'; return; }
-    setTimeout(wait,100);
-  })();
+  const saved=sessionStorage.getItem(ID_TOKEN_KEY);
+  if(saved && isValidClaims(decodeJwt(saved))){
+    // Sesion valida: entra de inmediato e inicializa GIS en segundo plano para renovar el token
+    grantAccess();
+    waitForGis(scheduleTokenRefresh);
+    return;
+  }
+  sessionStorage.removeItem(ID_TOKEN_KEY);
+  waitForGis(showSignInButton);
 }
 
 // ─── CONSTANTS ───
@@ -533,7 +561,7 @@ function renderRecs(){
 }
 
 async function callProxy(messages, useSearch){
-  const body={model:'claude-sonnet-4-20250514',max_tokens:1500,messages};
+  const body={model:'claude-sonnet-4-6',max_tokens:1500,messages};
   if(useSearch) body.tools=[{type:'web_search_20250305',name:'web_search'}];
   const idToken=sessionStorage.getItem('plv2_idtoken');
   const headers={'Content-Type':'application/json'};

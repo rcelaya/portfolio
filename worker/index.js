@@ -7,6 +7,22 @@ const CLIENT_ID = '962184983103-paqoo5arm1f79jtkmlt8simhjq0cvb1s.apps.googleuser
 const ALLOWED_EMAILS = ['rcelaya@artogroup.com'];
 const CERTS_URL = 'https://www.googleapis.com/oauth2/v3/certs';
 
+// Rate limit best-effort por IP (en memoria, por isolate). El control real lo da
+// la verificación del token; esto es una barrera extra contra ráfagas/abuso.
+const RATE_LIMIT = { windowMs: 60_000, max: 30 };
+const hits = new Map();
+function isRateLimited(ip) {
+  const now = Date.now();
+  if (hits.size > 5000) hits.clear(); // evita crecimiento ilimitado de memoria
+  const entry = hits.get(ip);
+  if (!entry || now > entry.reset) {
+    hits.set(ip, { count: 1, reset: now + RATE_LIMIT.windowMs });
+    return false;
+  }
+  entry.count++;
+  return entry.count > RATE_LIMIT.max;
+}
+
 function corsHeaders(request) {
   const origin = request.headers.get('Origin') || '*';
   return {
@@ -68,6 +84,11 @@ export default {
     if (request.method === 'OPTIONS') return new Response(null, { headers: cors });
     if (request.method !== 'POST') return new Response('Method not allowed', { status: 405, headers: cors });
 
+    const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+    if (isRateLimited(ip)) {
+      return json({ error: 'Demasiadas solicitudes. Espera un momento.', reason: 'rate_limited' }, 429, request);
+    }
+
     const auth = request.headers.get('Authorization') || '';
     const idToken = auth.startsWith('Bearer ') ? auth.slice(7) : '';
     if (!idToken) return json({ error: 'No autorizado: falta sesión de Google', reason: 'no_token' }, 401, request);
@@ -98,7 +119,6 @@ export default {
         'Content-Type': 'application/json',
         'x-api-key': env.ANTHROPIC_KEY,
         'anthropic-version': '2023-06-01',
-        'anthropic-beta': 'interleaved-thinking-2025-05-14',
       },
       body: JSON.stringify(body),
     });
