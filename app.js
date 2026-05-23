@@ -12,8 +12,8 @@
 //  token de Google debe hacerse en el Worker (proxy). Ver README.
 // ═══════════════════════════════════════════════════════════════
 const AUTH = {
-  CLIENT_ID: '',                 // <-- PEGA AQUI tu Google OAuth Client ID (xxx.apps.googleusercontent.com)
-  ALLOWED_EMAILS: [],            // <-- PEGA AQUI tu(s) correo(s) Google, ej: ['tucorreo@gmail.com']
+  CLIENT_ID: '962184983103-paqoo5arm1f79jtkmlt8simhjq0cvb1s.apps.googleusercontent.com',
+  ALLOWED_EMAILS: ['rcelaya@artogroup.com'],
 };
 const ID_TOKEN_KEY='plv2_idtoken';
 
