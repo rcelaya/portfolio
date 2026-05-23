@@ -541,7 +541,11 @@ async function callProxy(messages, useSearch){
   const res=await fetch('https://portfolio-proxy.rcelaya.workers.dev',{
     method:'POST',headers,body:JSON.stringify(body)
   });
-  if(res.status===401||res.status===403) throw new Error('Sesion no autorizada o expirada. Vuelve a iniciar sesion con Google.');
+  if(res.status===401||res.status===403){
+    let detail='';
+    try{const e=await res.json(); detail=e.reason?(' ['+e.reason+(e.checks?' '+JSON.stringify(e.checks):'')+(e.email?' '+e.email:'')+']'):(' '+(e.error||''));}catch(_){}
+    throw new Error('Acceso denegado'+detail+'. Cierra sesion (Salir) y vuelve a entrar con Google.');
+  }
   if(!res.ok) throw new Error('Error del servidor: '+res.status);
   return await res.json();
 }

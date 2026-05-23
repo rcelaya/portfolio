@@ -1,0 +1,7 @@
+name = "portfolio-proxy"
+main = "index.js"
+compatibility_date = "2024-11-01"
+
+# La API key de Anthropic NO va aquí. Es un secret:
+#   cd worker && wrangler secret put ANTHROPIC_KEY
+# (o en el dashboard: Workers & Pages > portfolio-proxy > Settings > Variables and Secrets)

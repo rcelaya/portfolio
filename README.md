@@ -57,52 +57,32 @@ El login por contraseña fue reemplazado por **Google Sign-In** restringido a tu
 
 El Worker `portfolio-proxy.rcelaya.workers.dev` estaba **abierto**: cualquiera con la URL
 podía gastar tus tokens de Claude. El cliente ahora envía el token de Google en el header
-`Authorization: Bearer <id_token>`. Falta que el Worker lo **verifique** (su código no vive
-en este repo, así que aplica este cambio en tu Worker):
+`Authorization: Bearer <id_token>` y el Worker lo **verifica** antes de reenviar a Anthropic.
 
-```js
-const ALLOWED_EMAILS = ['tucorreo@gmail.com'];
-const CLIENT_ID = 'TU_CLIENT_ID.apps.googleusercontent.com';
+El código del Worker vive en la carpeta [`worker/`](worker/):
 
-export default {
-  async fetch(req, env) {
-    if (req.method !== 'POST') return new Response('Method not allowed', { status: 405 });
+- `worker/index.js` — proxy con verificación del token de Google + CORS restringido a GitHub Pages.
+- `worker/wrangler.toml` — config de despliegue.
 
-    // 1) Extraer y verificar el token de Google
-    const auth = req.headers.get('Authorization') || '';
-    const idToken = auth.startsWith('Bearer ') ? auth.slice(7) : '';
-    if (!idToken) return new Response('Unauthorized', { status: 401 });
+> La API key de Anthropic **no** está en el repo: vive como secret (`env.ANTHROPIC_KEY`) en Cloudflare.
 
-    const info = await fetch(
-      'https://oauth2.googleapis.com/tokeninfo?id_token=' + encodeURIComponent(idToken)
-    ).then(r => r.ok ? r.json() : null);
+### Desplegar el Worker
 
-    const ok = info
-      && info.aud === CLIENT_ID
-      && info.email_verified === 'true'
-      && ALLOWED_EMAILS.includes((info.email || '').toLowerCase());
-    if (!ok) return new Response('Forbidden', { status: 403 });
+**Opción A — Editor web (rápido):**
+1. https://dash.cloudflare.com → *Workers & Pages* → `portfolio-proxy` → *Edit code*.
+2. Reemplaza el contenido con el de `worker/index.js` y dale *Deploy*.
 
-    // 2) Reenviar a Anthropic con la API key (secreto del Worker, nunca en el cliente)
-    const body = await req.text();
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'x-api-key': env.ANTHROPIC_API_KEY,
-        'anthropic-version': '2023-06-01',
-      },
-      body,
-    });
-    return new Response(res.body, {
-      status: res.status,
-      headers: { 'content-type': 'application/json' },
-    });
-  },
-};
+**Opción B — wrangler (versionado):**
+```bash
+npm install -g wrangler
+cd worker
+wrangler login
+wrangler deploy
+# La API key como secret (una vez):
+wrangler secret put ANTHROPIC_KEY
 ```
 
-Recomendaciones adicionales para el Worker:
-- Restringe **CORS** al origen de tu GitHub Pages en vez de `*`.
-- Agrega *rate limiting* (p. ej. con Durable Objects o el plan de Cloudflare) para evitar abuso.
-- Guarda `ANTHROPIC_API_KEY` como **secret** (`wrangler secret put ANTHROPIC_API_KEY`), nunca en el código.
+### Notas
+- Ajusta `ALLOWED_ORIGIN` en `worker/index.js` si tu URL de GitHub Pages cambia.
+- El header `Authorization` **debe** estar en `Access-Control-Allow-Headers` (ya incluido), si no el navegador bloquea la petición.
+- Mejora opcional: *rate limiting* para evitar abuso.
