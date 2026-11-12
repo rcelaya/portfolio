@@ -381,15 +381,28 @@ function sortBy(col){
 function renderPositions(){
   const t=totalAll();
   let filtered;
-  if(acctFilter==='active') filtered=activePos();
+  const isCombined=acctFilter==='combined';
+  if(acctFilter==='active'||isCombined) filtered=activePos();
   else if(acctFilter==='all') filtered=positions;
   else filtered=positions.filter(p=>p.acct===acctFilter);
+
+  if(isCombined){
+    const byTicker={};
+    filtered.forEach(p=>{
+      if(!byTicker[p.ticker]) byTicker[p.ticker]={ticker:p.ticker,name:p.name,cat:p.cat,priceUSD:p.priceUSD,units:0,costTotalUSD:0,valueUSD:0,accts:[]};
+      const g=byTicker[p.ticker];
+      g.units+=p.units; g.costTotalUSD+=p.costTotalUSD; g.valueUSD+=p.valueUSD;
+      if(!g.accts.includes(p.acct)) g.accts.push(p.acct);
+      g.priceUSD=p.priceUSD;
+    });
+    filtered=Object.values(byTicker).map(g=>({...g,costUSD:g.units>0?g.costTotalUSD/g.units:0}));
+  }
 
   const filteredTotal=filtered.reduce((s,p)=>s+p.valueUSD,0);
   const filteredCost=filtered.reduce((s,p)=>s+p.costTotalUSD,0);
   const filteredPnlAmt=filteredTotal-filteredCost;
   const filteredPnlPct=filteredCost>0?(filteredPnlAmt/filteredCost)*100:0;
-  document.getElementById('posCount').textContent=filtered.length+' posiciones · '+fmt(filteredTotal);
+  document.getElementById('posCount').textContent=filtered.length+(isCombined?' tickers combinados':' posiciones')+' · '+fmt(filteredTotal);
 
   // Update header indicators
   ['ticker','cat','acct','priceUSD','units','valueUSD','pnlPct','weight'].forEach(c=>{
@@ -416,10 +429,16 @@ function renderPositions(){
   document.getElementById('posTable').innerHTML=sorted.map(p=>{
     const pnl=p.costTotalUSD>0?((p.valueUSD-p.costTotalUSD)/p.costTotalUSD)*100:0;
     const pnlA=p.valueUSD-p.costTotalUSD;
+    const acctCell=isCombined
+      ? (p.accts||[p.acct]).map(a=>`<span class="abadge ${acctClass(a)}">${a}</span>`).join(' ')
+      : `<span class="abadge ${acctClass(p.acct)}">${p.acct}</span>`;
+    const nameExtra=isCombined&&p.costUSD
+      ? `<br><span style="font-size:10px;color:var(--muted);">costo prom. ${p.priceUSD<1?p.costUSD.toFixed(4):fmt2(p.costUSD)}</span>`
+      : '';
     return `<tr>
-      <td><span class="tk">${p.ticker}</span><br><span style="font-size:11px;color:var(--muted);">${p.name}</span></td>
+      <td><span class="tk">${p.ticker}</span><br><span style="font-size:11px;color:var(--muted);">${p.name}</span>${nameExtra}</td>
       <td><span class="cpill ${catClass(p.cat)}">${catLabel(p.cat)}</span></td>
-      <td><span class="abadge ${acctClass(p.acct)}">${p.acct}</span></td>
+      <td style="white-space:nowrap;">${acctCell}</td>
       <td class="mono">${p.priceUSD<1?p.priceUSD.toFixed(4):fmt2(p.priceUSD)}</td>
       <td class="mono">${p.units.toFixed(4)}</td>
       <td class="mono">${fmt(p.valueUSD)}</td>
