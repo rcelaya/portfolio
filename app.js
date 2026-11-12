@@ -405,7 +405,7 @@ function renderPositions(){
   document.getElementById('posCount').textContent=filtered.length+(isCombined?' tickers combinados':' posiciones')+' · '+fmt(filteredTotal);
 
   // Update header indicators
-  ['ticker','cat','acct','priceUSD','units','valueUSD','pnlPct','weight'].forEach(c=>{
+  ['ticker','cat','acct','priceUSD','costUSD','units','valueUSD','pnlPct','weight'].forEach(c=>{
     const el=document.getElementById('sh-'+c);
     if(el) el.textContent=sortCol===c?(sortDir===1?' ↓':' ↑'):'';
   });
@@ -415,7 +415,10 @@ function renderPositions(){
     if(sortCol==='ticker') {av=a.ticker;bv=b.ticker;return sortDir*(av<bv?-1:av>bv?1:0);}
     if(sortCol==='cat')    {av=a.cat;bv=b.cat;return sortDir*(av<bv?-1:av>bv?1:0);}
     if(sortCol==='acct')   {av=a.acct;bv=b.acct;return sortDir*(av<bv?-1:av>bv?1:0);}
-    if(sortCol==='pnlPct'){
+    if(sortCol==='costUSD'){
+      av=a.units>0?a.costTotalUSD/a.units:0;
+      bv=b.units>0?b.costTotalUSD/b.units:0;
+    } else if(sortCol==='pnlPct'){
       av=a.costTotalUSD>0?((a.valueUSD-a.costTotalUSD)/a.costTotalUSD):0;
       bv=b.costTotalUSD>0?((b.valueUSD-b.costTotalUSD)/b.costTotalUSD):0;
     } else if(sortCol==='weight'){
@@ -432,14 +435,13 @@ function renderPositions(){
     const acctCell=isCombined
       ? (p.accts||[p.acct]).map(a=>`<span class="abadge ${acctClass(a)}">${a}</span>`).join(' ')
       : `<span class="abadge ${acctClass(p.acct)}">${p.acct}</span>`;
-    const nameExtra=isCombined&&p.costUSD
-      ? `<br><span style="font-size:10px;color:var(--muted);">costo prom. ${p.priceUSD<1?p.costUSD.toFixed(4):fmt2(p.costUSD)}</span>`
-      : '';
+    const costPerUnit=p.units>0?p.costTotalUSD/p.units:0;
     return `<tr>
-      <td><span class="tk">${p.ticker}</span><br><span style="font-size:11px;color:var(--muted);">${p.name}</span>${nameExtra}</td>
+      <td><span class="tk">${p.ticker}</span><br><span style="font-size:11px;color:var(--muted);">${p.name}</span></td>
       <td><span class="cpill ${catClass(p.cat)}">${catLabel(p.cat)}</span></td>
       <td style="white-space:nowrap;">${acctCell}</td>
       <td class="mono">${p.priceUSD<1?p.priceUSD.toFixed(4):fmt2(p.priceUSD)}</td>
+      <td class="mono">${p.priceUSD<1?costPerUnit.toFixed(4):fmt2(costPerUnit)}</td>
       <td class="mono">${p.units.toFixed(4)}</td>
       <td class="mono">${fmt(p.valueUSD)}</td>
       <td><span class="${pnl>=0?'pu':'pd'}">${fmtPct(pnl)}<br><span style="font-size:11px;">${pnlA>=0?'+':''}${fmt(pnlA)}</span></span></td>
@@ -448,7 +450,7 @@ function renderPositions(){
   }).join('')+`
   <tr style="background:var(--surface2);border-top:2px solid var(--border-md);">
     <td colspan="2" style="font-family:var(--mono);font-size:12px;font-weight:500;padding:12px 16px;">Total</td>
-    <td></td><td></td><td></td>
+    <td></td><td></td><td></td><td></td>
     <td style="font-family:var(--mono);font-size:13px;font-weight:500;padding:12px 16px;">${fmt(filteredTotal)}</td>
     <td style="padding:12px 16px;"><span class="${filteredPnlPct>=0?'pu':'pd'}">${fmtPct(filteredPnlPct)}<br><span style="font-size:11px;">${filteredPnlAmt>=0?'+':''}${fmt(filteredPnlAmt)}</span></span></td>
     <td style="font-family:var(--mono);font-size:12px;padding:12px 16px;color:var(--muted);">100%</td>
