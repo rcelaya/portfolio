@@ -223,8 +223,8 @@ async function fetchAll(){
         if(p.ticker==='RRSP-WS'){positions[i].priceUSD=(d.rrspWs||29499)*cu;positions[i].valueUSD=positions[i].priceUSD;positions[i].costTotalUSD=(d.rrspWsCost||26066)*cu;}
         if(p.ticker==='AGF-CA'){positions[i].priceUSD=(d.agf||31588)*cu;positions[i].valueUSD=positions[i].priceUSD;positions[i].costTotalUSD=(d.agfCost||24700)*cu;}
         if(p.ticker==='AFORE'){positions[i].priceUSD=(d.afore||1385366)*(d.mxn||0.0488);positions[i].valueUSD=positions[i].priceUSD;positions[i].costTotalUSD=(d.aforeCost||d.afore||1385366)*(d.mxn||0.0488);}
-        if(p.ticker==='CASH-MX'){const v=(d.cashMx||0)*(d.mxn||0.0488);positions[i].priceUSD=v;positions[i].valueUSD=v;positions[i].costTotalUSD=v;}
-        if(p.ticker==='CASH-CA'){const v=(d.cashCa||0)*cu;positions[i].priceUSD=v;positions[i].valueUSD=v;positions[i].costTotalUSD=v;}
+        if(p.ticker==='CASH-MX'){const v=(d.cashMx||0)*(d.mxn||0.0488);positions[i].priceUSD=v;positions[i].valueUSD=v;positions[i].costTotalUSD=(d.cashMxCost||d.cashMx||0)*(d.mxn||0.0488);}
+        if(p.ticker==='CASH-CA'){const v=(d.cashCa||0)*cu;positions[i].priceUSD=v;positions[i].valueUSD=v;positions[i].costTotalUSD=(d.cashCaCost||d.cashCa||0)*cu;}
       });
     }catch(e){}}
 
@@ -837,17 +837,19 @@ function saveManual(){
   const cad=parseFloat(document.getElementById('val-cadrate').value)||1.3719;
   const mxn=parseFloat(document.getElementById('val-mxnrate').value)||0.0488;
   const cashMx=parseFloat(document.getElementById('val-cash-mx').value)||0;
+  const cashMxCost=parseFloat(document.getElementById('val-cash-mx-cost').value)||cashMx;
   const cashCa=parseFloat(document.getElementById('val-cash-ca').value)||0;
+  const cashCaCost=parseFloat(document.getElementById('val-cash-ca-cost').value)||cashCa;
   const cu=1/cad;
   positions.forEach((p,i)=>{
     if(p.ticker==='RRSP-SC'){positions[i].priceUSD=rrspSc*cu;positions[i].valueUSD=rrspSc*cu;positions[i].costTotalUSD=rrspScCost*cu;}
     if(p.ticker==='RRSP-WS'){positions[i].priceUSD=rrspWs*cu;positions[i].valueUSD=rrspWs*cu;positions[i].costTotalUSD=rrspWsCost*cu;}
     if(p.ticker==='AGF-CA'){positions[i].priceUSD=agf*cu;positions[i].valueUSD=agf*cu;positions[i].costTotalUSD=agfCost*cu;}
     if(p.ticker==='AFORE'){positions[i].priceUSD=afore*mxn;positions[i].valueUSD=afore*mxn;positions[i].costTotalUSD=aforeCost*mxn;}
-    if(p.ticker==='CASH-MX'){const v=cashMx*mxn;positions[i].priceUSD=v;positions[i].valueUSD=v;positions[i].costTotalUSD=v;}
-    if(p.ticker==='CASH-CA'){const v=cashCa*cu;positions[i].priceUSD=v;positions[i].valueUSD=v;positions[i].costTotalUSD=v;}
+    if(p.ticker==='CASH-MX'){const v=cashMx*mxn;positions[i].priceUSD=v;positions[i].valueUSD=v;positions[i].costTotalUSD=cashMxCost*mxn;}
+    if(p.ticker==='CASH-CA'){const v=cashCa*cu;positions[i].priceUSD=v;positions[i].valueUSD=v;positions[i].costTotalUSD=cashCaCost*cu;}
   });
-  localStorage.setItem('plv2_manual',JSON.stringify({afore,aforeCost,rrspSc,rrspScCost,rrspWs,rrspWsCost,agf,agfCost,cad,mxn,cashMx,cashCa}));
+  localStorage.setItem('plv2_manual',JSON.stringify({afore,aforeCost,rrspSc,rrspScCost,rrspWs,rrspWsCost,agf,agfCost,cad,mxn,cashMx,cashMxCost,cashCa,cashCaCost}));
   document.getElementById('st-manual').textContent='Guardado ✓';
   document.getElementById('st-manual').style.color='var(--green)';
   renderAll();
@@ -999,7 +1001,9 @@ function sv(view,btn){
       if(d.cad)document.getElementById('val-cadrate').value=d.cad;
       if(d.mxn)document.getElementById('val-mxnrate').value=d.mxn;
       if(d.cashMx)document.getElementById('val-cash-mx').value=d.cashMx;
+      if(d.cashMxCost)document.getElementById('val-cash-mx-cost').value=d.cashMxCost;
       if(d.cashCa)document.getElementById('val-cash-ca').value=d.cashCa;
+      if(d.cashCaCost)document.getElementById('val-cash-ca-cost').value=d.cashCaCost;
     }catch(e){}}
     if(sheetUrl)document.getElementById('urlMain').value=sheetUrl;
     if(cryptoUrl)document.getElementById('urlCrypto').value=cryptoUrl;
@@ -1018,8 +1022,8 @@ if(savedM){try{
     if(p.ticker==='RRSP-WS'){positions[i].priceUSD=(d.rrspWs||29499)*cu;positions[i].valueUSD=positions[i].priceUSD;positions[i].costTotalUSD=(d.rrspWsCost||26066)*cu;}
     if(p.ticker==='AGF-CA'){positions[i].priceUSD=(d.agf||31588)*cu;positions[i].valueUSD=positions[i].priceUSD;positions[i].costTotalUSD=(d.agfCost||24700)*cu;}
     if(p.ticker==='AFORE'){positions[i].priceUSD=(d.afore||1385366)*(d.mxn||0.0488);positions[i].valueUSD=positions[i].priceUSD;positions[i].costTotalUSD=(d.aforeCost||d.afore||1385366)*(d.mxn||0.0488);}
-    if(p.ticker==='CASH-MX'){const v=(d.cashMx||0)*(d.mxn||0.0488);positions[i].priceUSD=v;positions[i].valueUSD=v;positions[i].costTotalUSD=v;}
-    if(p.ticker==='CASH-CA'){const v=(d.cashCa||0)*cu;positions[i].priceUSD=v;positions[i].valueUSD=v;positions[i].costTotalUSD=v;}
+    if(p.ticker==='CASH-MX'){const v=(d.cashMx||0)*(d.mxn||0.0488);positions[i].priceUSD=v;positions[i].valueUSD=v;positions[i].costTotalUSD=(d.cashMxCost||d.cashMx||0)*(d.mxn||0.0488);}
+    if(p.ticker==='CASH-CA'){const v=(d.cashCa||0)*cu;positions[i].priceUSD=v;positions[i].valueUSD=v;positions[i].costTotalUSD=(d.cashCaCost||d.cashCa||0)*cu;}
   });
 }catch(e){}}
 
