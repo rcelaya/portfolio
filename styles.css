@@ -26,7 +26,9 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);font-size:14
 .nb{font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:.08em;padding:8px 14px;background:transparent;border:none;color:var(--muted);cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;transition:color .15s,border-color .15s;}
 .nb:hover{color:var(--text);}
 .nb.active{color:var(--green);border-bottom-color:var(--green);font-weight:500;}
-.main{padding:22px 32px;max-width:1200px;}
+.main{padding:22px 32px;}
+/* Mismo contenedor para encabezado, navegación y contenido: fluido hasta 1680px y centrado en pantallas anchas */
+.hdr,.nav,.subnav,.main{max-width:1680px;margin-left:auto;margin-right:auto;}
 .view{display:none;}.view.active{display:block;}
 .acct-tabs{display:flex;gap:6px;margin-bottom:18px;flex-wrap:wrap;}
 .at{font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.07em;padding:5px 14px;border-radius:6px;border:1px solid var(--border-md);background:transparent;color:var(--muted);cursor:pointer;transition:all .15s;}
@@ -94,7 +96,7 @@ tbody td{padding:10px 16px;font-size:13px;}
 /* RETIRO CARD */
 .retiro-banner{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:18px 20px;margin-bottom:20px;}
 .retiro-title{font-size:11px;font-family:var(--mono);text-transform:uppercase;letter-spacing:.09em;color:var(--muted);margin-bottom:14px;}
-.retiro-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;}
+.retiro-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;}
 .retiro-item{background:var(--surface2);border-radius:8px;padding:12px 14px;}
 .retiro-name{font-size:10px;font-family:var(--mono);color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:5px;}
 .retiro-val{font-size:16px;font-weight:700;color:var(--text);}
@@ -140,9 +142,16 @@ tbody td{padding:10px 16px;font-size:13px;}
 .sb.active{background:var(--green-d);border-color:var(--green);color:var(--green);}
 /* Resumen: qué hacer esta semana */
 .week{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:18px;}
+#weekAction{grid-template-columns:minmax(0,2fr) minmax(0,3fr);}
 .week-box{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px 18px;}
 .week-row{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);font-size:13px;}
 .week-row:last-child{border-bottom:none;}
+@media(max-width:1100px){
+  .cards-5{grid-template-columns:repeat(3,minmax(0,1fr));}
+}
+@media(max-width:860px){
+  .week,#weekAction{grid-template-columns:1fr;}
+}
 @media(max-width:700px){
   .main,.hdr,.nav,.subnav{padding-left:14px;padding-right:14px;}
   .week{grid-template-columns:1fr;}
