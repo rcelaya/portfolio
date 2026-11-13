@@ -202,12 +202,23 @@ const catLabel = c=>({index:'Index',tech:'Tech',crypto:'Cripto',intl:'Internacio
 // Fuente única de metas y reglas: la usan Estrategia, Asignación, Plan DCA y el prompt de IA.
 const STRATEGY_DATE='13 nov 2026';
 const ASSET_CLASSES=[
-  {key:'us',    label:'Acciones EE.UU.',          target:42, color:'#1a50a0', buy:'VTI',          note:'Índices + acciones individuales de EE.UU.'},
-  {key:'intl',  label:'Acciones internacionales', target:18, color:'#5a3fa0', buy:'VXUS',         note:'Desarrollados y emergentes fuera de EE.UU.'},
-  {key:'crypto',label:'Cripto',                   target:25, color:'#b53a2f', buy:null,           note:'BTC como reserva de valor; incluye COIN y BMNR'},
-  {key:'gold',  label:'Oro',                      target:5,  color:'#854f0b', buy:'GLD',          note:'Cobertura ante caídas e inflación'},
-  {key:'fixed', label:'Renta fija / Cash',        target:10, color:'#6a7080', buy:'Cash MXN 6.5%', note:'Colchón de liquidez; MXN rinde 6.5% fijo'},
+  {key:'us',    label:'Acciones EE.UU.',          target:42, color:'#1a50a0', note:'Índices + acciones individuales de EE.UU.'},
+  {key:'intl',  label:'Acciones internacionales', target:18, color:'#5a3fa0', note:'Desarrollados y emergentes fuera de EE.UU.'},
+  {key:'crypto',label:'Cripto',                   target:25, color:'#b53a2f', note:'BTC como reserva de valor; incluye COIN y BMNR'},
+  {key:'gold',  label:'Oro',                      target:5,  color:'#854f0b', note:'Cobertura ante caídas e inflación'},
+  {key:'fixed', label:'Renta fija / Cash',        target:10, color:'#6a7080', note:'Colchón de liquidez; MXN rinde 6.5% fijo'},
 ];
+// Vehículo preferido para acumular en cada clase, en orden. Se elige el primero que ya tengas.
+// VEA va antes que VGK porque VGK (Europa) ya está contenido en VEA (desarrollados ex-EE.UU.).
+const CLASS_BUY_PREF={us:['VTI','VOO','SPYG'],intl:['VEA','VXUS','VGK'],gold:['GLD'],fixed:['CASH-MX','CASH-CA']};
+function buyVehicle(key){
+  const ap=activePos();
+  const held=[...new Set(ap.filter(p=>assetClass(p)===key&&p.valueUSD>0).map(p=>p.ticker))];
+  const pref=CLASS_BUY_PREF[key]||[];
+  const ticker=pref.find(t=>held.includes(t))||pref[0];
+  const accts=[...new Set(ap.filter(p=>p.ticker===ticker&&p.valueUSD>0).map(p=>p.acct))];
+  return {ticker,held:held.includes(ticker),accts,others:held.filter(t=>t!==ticker)};
+}
 const CLASS_OVERRIDES={TSM:'intl'};
 // Techo de cripto por año: baja gradualmente hasta la meta de 25% sin forzar ventas en pérdida.
 const CRYPTO_CEILING={2026:45,2027:40,2028:36,2029:32,2030:28};
@@ -686,7 +697,7 @@ async function generateRecs(){
       return `${p.ticker}(${p.acct},${assetClass(p)}) ${fmt(p.valueUSD)} PL${pnl>=0?'+':''}${pnl.toFixed(0)}%`;
     }).join(' | ');
     const actual=ASSET_CLASSES.map(c=>`${c.label} ${cb.pct(c.key).toFixed(1)}% (meta ${c.target}%)`).join(' | ');
-    const plan=dcaPlan().map(c=>`${c.label} $${c.amt}`).join(', ')||'sin huecos';
+    const plan=dcaPlan().map(c=>`${c.label} $${c.amt} en ${buyVehicle(c.key).ticker}`).join(', ')||'sin huecos';
 
     bar.style.width='65%'; loadTxt.textContent='Generando recomendaciones...';
 
@@ -700,7 +711,7 @@ Top posiciones: ${topPos}
 Correlacion interna estimada: ${wc.toFixed(2)}
 Mercado: ${MARKET_CTX}
 
-Tarea: "buy" = 4 tickers concretos para ejecutar el plan DCA (nunca cripto); dca_weekly debe sumar ${DCA_WEEKLY}. "reduce" = hasta 3 posiciones que no encajan con la estrategia o son redundantes, explicando si conviene vender ya o solo dejar de comprar.
+Tarea: "buy" = una entrada por cada linea del plan DCA, usando esos mismos tickers (ya estan en el portafolio; nunca cripto ni ETFs nuevos que dupliquen exposicion); dca_weekly debe sumar ${DCA_WEEKLY}. "reduce" = hasta 3 posiciones que no encajan con la estrategia o son redundantes, explicando si conviene vender ya o solo dejar de comprar.
 
 Responde SOLO con JSON sin texto extra ni markdown:
 {"market_context":"resumen breve","buy":[{"ticker":"VXUS","name":"nombre","action":"Comprar","rationale":"especifico al portafolio y la estrategia","corr_sp500":0.8,"dca_weekly":150,"account":"MX"}],"reduce":[{"ticker":"XXX","reason":"especifico"}]}`}], false);
@@ -777,17 +788,22 @@ function renderDCA(){
     <div class="card"><div class="card-lbl">Cripto hoy</div><div class="card-val">${cb.pct('crypto').toFixed(1)}%</div><div class="card-sub">techo ${cryptoCeiling()}% · meta 25%</div></div>
     <div class="card"><div class="card-lbl">Años a cripto 25%</div><div class="card-val">${yrs>0?yrs.toFixed(1):'—'}</div><div class="card-sub">solo con aportaciones, cripto plano</div></div>`;
   document.getElementById('dcaPhases').innerHTML=`<div class="info" style="grid-column:1/-1;margin:0;">El reparto se recalcula con tus posiciones actuales: el dinero va a las clases por debajo de su meta, en proporción al hueco en USD. Cripto no recibe aportaciones hasta llegar a 25%.</div>`;
-  document.getElementById('weeklyTbl').innerHTML=plan.length?plan.map(c=>`<tr>
-    <td><span class="tk">${c.buy}</span><br><span style="font-size:11px;color:var(--muted);">${c.label}</span></td>
+  document.getElementById('weeklyTbl').innerHTML=plan.length?plan.map(c=>{
+    const v=buyVehicle(c.key), accts=v.accts.length?v.accts:['MX'];
+    const origin=v.held?'Ya la tienes: acumular más':'Nueva posición';
+    const others=v.others.length?` · también tienes ${v.others.join(', ')} (no agregar)`:'';
+    return `<tr>
+    <td><span class="tk">${v.ticker}</span><br><span style="font-size:11px;color:var(--muted);">${c.label}</span></td>
     <td><span class="mono up">${fmt(c.amt)}</span></td>
-    <td style="font-size:12px;color:var(--muted);">${cb.pct(c.key).toFixed(1)}% → meta ${c.target}% · faltan ${fmt(c.gap)}</td>
-    <td><span class="abadge ${acctClass('MX')}">MX</span></td>
-  </tr>`).join(''):`<tr><td colspan="4" style="color:var(--muted);font-size:12px;">Todas las clases están en su meta.</td></tr>`;
+    <td style="font-size:12px;color:var(--muted);">${cb.pct(c.key).toFixed(1)}% → meta ${c.target}% · faltan ${fmt(c.gap)}<br>${origin}${others}</td>
+    <td>${accts.map(a=>`<span class="abadge ${acctClass(a)}">${a}</span>`).join(' ')}</td>
+  </tr>`;}).join(''):`<tr><td colspan="4" style="color:var(--muted);font-size:12px;">Todas las clases están en su meta.</td></tr>`;
 }
 
 // ─── ESTRATEGIA (vista) ───
 const STRATEGY_RULES=[
   ['Dinero nuevo',`Los ${fmt(DCA_WEEKLY)}/semana se reparten entre las clases por debajo de su meta (ver Plan DCA). Cripto no recibe aportaciones hasta llegar a 25%.`],
+  ['Acumular en lo que ya tienes','Cada clase se compra con el ETF amplio que ya tienes (VEA para internacional, VTI para EE.UU., GLD para oro). No se abren posiciones nuevas que dupliquen exposición: VGK ya está contenido en VEA.'],
   ['Techo de cripto','Si cripto rebasa el techo del año, se vende BTC con ganancia hasta volver al techo y se reinvierte en los huecos. Nunca se vende cripto en pérdida para rebalancear.'],
   ['Altcoins','SOL, AAVE, LINK, ARB, UNI y HYPE quedan fuera de la tesis: no se agregan. Evaluar con el contador venderlas para aprovechar la pérdida fiscal.'],
   ['ETH / stETH','Pendiente decidir si forman parte de la tesis de reserva de valor. Mientras tanto, no se agregan.'],
