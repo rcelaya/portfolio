@@ -43,6 +43,7 @@
 
 <nav class="nav">
   <button class="nb active" onclick="sv('overview',this)">Resumen</button>
+  <button class="nb" onclick="sv('strategy',this)">Estrategia</button>
   <button class="nb" onclick="sv('positions',this)">Posiciones</button>
   <button class="nb" onclick="sv('allocation',this)">Asignación</button>
   <button class="nb" onclick="sv('correlation',this)">Correlación</button>
@@ -76,6 +77,11 @@
     <div class="retiro-grid" id="retiroBanner"></div>
   </div>
   <div id="alertsSection"></div>
+</div>
+
+<!-- ===== STRATEGY ===== -->
+<div class="view" id="view-strategy">
+  <div id="strategyDetail"></div>
 </div>
 
 <!-- ===== POSITIONS ===== -->
@@ -112,10 +118,10 @@
 
 <!-- ===== ALLOCATION ===== -->
 <div class="view" id="view-allocation">
-  <div class="info" style="margin-bottom:16px;">Basado en portafolio activo únicamente (MX + CA + CRYPTO + BITSO). Las cuentas de retiro están excluidas.</div>
-  <div class="cards cards-3" id="allocCards"></div>
+  <div class="info" style="margin-bottom:16px;">Basado en portafolio activo (MX + CA + Cripto + Bitso + AGF). Las cuentas de retiro están excluidas. Metas según la pestaña Estrategia.</div>
+  <div class="cards cards-5" id="allocCards"></div>
   <div class="alloc-sec">
-    <div class="slbl" style="margin-bottom:14px;">Concentración actual vs target — portafolio activo</div>
+    <div class="slbl" style="margin-bottom:14px;">Clase de activo vs meta — la línea gris es la meta; en cripto, la roja es el techo del año</div>
     <div id="allocBars"></div>
   </div>
   <div id="allocAlerts"></div>
@@ -187,11 +193,10 @@
 <!-- ===== DCA ===== -->
 <div class="view" id="view-dca">
   <div class="cards" id="dcaCards"></div>
-  <div class="slbl" style="margin-bottom:12px;">Plan por fase — cuenta MX ($300/semana)</div>
-  <div id="dcaPhases" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:18px;"></div>
+  <div id="dcaPhases" style="display:grid;grid-template-columns:1fr;gap:12px;margin-bottom:18px;"></div>
   <div class="tbl-wrap">
-    <div class="tbl-bar"><span>Distribución semanal — fase activa</span></div>
-    <table><thead><tr><th>Ticker</th><th>Monto</th><th>Objetivo de correlación</th><th>Cuenta</th></tr></thead>
+    <div class="tbl-bar"><span>Distribución semanal — calculada según los huecos</span></div>
+    <table><thead><tr><th>Ticker / Clase</th><th>Monto</th><th>Hueco</th><th>Cuenta</th></tr></thead>
     <tbody id="weeklyTbl"></tbody></table>
   </div>
 </div>
