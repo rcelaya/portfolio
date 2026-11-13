@@ -127,8 +127,27 @@ tbody td{padding:10px 16px;font-size:13px;}
 .btn-p{background:var(--green);color:#fff;border-color:var(--green);}
 .btn-p:hover{background:#145430;border-color:#145430;color:#fff;}
 .btn-sm{padding:4px 10px;font-size:10px;}
+/* Estado contra la meta — mismo significado en todas las vistas:
+   verde = en meta · ámbar = fuera de banda (lo corrige el DCA) · rojo = arriba del techo (requiere vender) */
+.s-ok{color:var(--green);}.s-warn{color:var(--amber);}.s-bad{color:var(--red);}
+.bad{background:var(--red-d);border:1px solid rgba(181,58,47,.2);border-radius:8px;padding:10px 14px;font-size:12px;color:var(--red);margin-bottom:10px;}
+.legend-status{display:flex;gap:14px;flex-wrap:wrap;font-size:11px;font-family:var(--mono);color:var(--muted);margin-bottom:14px;}
+.legend-status span::before{content:'';display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;vertical-align:middle;background:currentColor;}
+/* Navegación en dos niveles */
+.subnav{display:flex;gap:6px;padding:12px 32px 0;flex-wrap:wrap;}
+.sb{font-family:var(--mono);font-size:11px;padding:5px 12px;border-radius:999px;border:1px solid var(--border-md);background:transparent;color:var(--muted);cursor:pointer;}
+.sb:hover{color:var(--text);}
+.sb.active{background:var(--green-d);border-color:var(--green);color:var(--green);}
+/* Resumen: qué hacer esta semana */
+.week{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:18px;}
+.week-box{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px 18px;}
+.week-row{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);font-size:13px;}
+.week-row:last-child{border-bottom:none;}
 @media(max-width:700px){
-  .main,.hdr,.nav{padding-left:14px;padding-right:14px;}
+  .main,.hdr,.nav,.subnav{padding-left:14px;padding-right:14px;}
+  .week{grid-template-columns:1fr;}
+  .subnav{flex-wrap:nowrap;overflow-x:auto;}
+  .sb{white-space:nowrap;}
   .hdr{padding-top:16px;gap:10px;}
   .hdr-total{font-size:28px;}
   .hdr-right{align-items:flex-start;}

@@ -202,12 +202,23 @@ const catLabel = c=>({index:'Index',tech:'Tech',crypto:'Cripto',intl:'Internacio
 // Fuente única de metas y reglas: la usan Estrategia, Asignación, Plan DCA y el prompt de IA.
 const STRATEGY_DATE='13 nov 2026';
 const ASSET_CLASSES=[
-  {key:'us',    label:'Acciones EE.UU.',          target:42, color:'#1a50a0', buy:'VTI',          note:'Índices + acciones individuales de EE.UU.'},
-  {key:'intl',  label:'Acciones internacionales', target:18, color:'#5a3fa0', buy:'VXUS',         note:'Desarrollados y emergentes fuera de EE.UU.'},
-  {key:'crypto',label:'Cripto',                   target:25, color:'#b53a2f', buy:null,           note:'BTC como reserva de valor; incluye COIN y BMNR'},
-  {key:'gold',  label:'Oro',                      target:5,  color:'#854f0b', buy:'GLD',          note:'Cobertura ante caídas e inflación'},
-  {key:'fixed', label:'Renta fija / Cash',        target:10, color:'#6a7080', buy:'Cash MXN 6.5%', note:'Colchón de liquidez; MXN rinde 6.5% fijo'},
+  {key:'us',    label:'Acciones EE.UU.',          target:42, color:'#1a50a0', note:'Índices + acciones individuales de EE.UU.'},
+  {key:'intl',  label:'Acciones internacionales', target:18, color:'#5a3fa0', note:'Desarrollados y emergentes fuera de EE.UU.'},
+  {key:'crypto',label:'Cripto',                   target:25, color:'#b53a2f', note:'BTC como reserva de valor; incluye COIN y BMNR'},
+  {key:'gold',  label:'Oro',                      target:5,  color:'#854f0b', note:'Cobertura ante caídas e inflación'},
+  {key:'fixed', label:'Renta fija / Cash',        target:10, color:'#6a7080', note:'Colchón de liquidez; MXN rinde 6.5% fijo'},
 ];
+// Vehículo preferido para acumular en cada clase, en orden. Se elige el primero que ya tengas.
+// VEA va antes que VGK porque VGK (Europa) ya está contenido en VEA (desarrollados ex-EE.UU.).
+const CLASS_BUY_PREF={us:['VTI','VOO','SPYG'],intl:['VEA','VXUS','VGK'],gold:['GLD'],fixed:['CASH-MX','CASH-CA']};
+function buyVehicle(key){
+  const ap=activePos();
+  const held=[...new Set(ap.filter(p=>assetClass(p)===key&&p.valueUSD>0).map(p=>p.ticker))];
+  const pref=CLASS_BUY_PREF[key]||[];
+  const ticker=pref.find(t=>held.includes(t))||pref[0];
+  const accts=[...new Set(ap.filter(p=>p.ticker===ticker&&p.valueUSD>0).map(p=>p.acct))];
+  return {ticker,held:held.includes(ticker),accts,others:held.filter(t=>t!==ticker)};
+}
 const CLASS_OVERRIDES={TSM:'intl'};
 // Techo de cripto por año: baja gradualmente hasta la meta de 25% sin forzar ventas en pérdida.
 const CRYPTO_CEILING={2026:45,2027:40,2028:36,2029:32,2030:28};
@@ -242,18 +253,29 @@ function cryptoExcessUSD(){
   const {t,by}=classBreakdown();
   return Math.max(0,by.crypto-cryptoCeiling()/100*t);
 }
+// Estado de una clase contra su meta. Es la única fuente de color de estado en todo el dashboard:
+// ok = en banda · warn = fuera de banda (lo corrige el DCA) · bad = cripto arriba del techo (requiere vender).
+function targetStatus(key){
+  const c=ASSET_CLASSES.find(x=>x.key===key), a=classBreakdown().pct(key);
+  if(key==='crypto'&&a>cryptoCeiling()) return {level:'bad',label:'Arriba del techo',a};
+  if(a>c.target+REBAL_BAND) return {level:'warn',label:key==='crypto'?'En transición':'Arriba',a};
+  if(a<c.target-REBAL_BAND) return {level:'warn',label:'Debajo',a};
+  return {level:'ok',label:'En meta',a};
+}
+const STATUS_LEGEND=`<div class="legend-status"><span class="s-ok">En meta (±${REBAL_BAND} pts)</span><span class="s-warn">Fuera de banda: lo corrige el DCA</span><span class="s-bad">Arriba del techo: vender con ganancia</span></div>`;
 function strategyAlerts(){
-  const {pct}=classBreakdown(), ceil=cryptoCeiling(), out=[];
-  const cp=pct('crypto');
-  if(cp>ceil){
-    out.push({type:'warn',msg:`Cripto en ${cp.toFixed(1)}% rebasa el techo de ${ceil}% para ${new Date().getFullYear()}. Regla: vende ~${fmt(cryptoExcessUSD())} de BTC (con ganancia) y reinviértelo en los huecos.`});
-  } else if(cp>25+REBAL_BAND){
-    out.push({type:'info',msg:`Cripto en ${cp.toFixed(1)}% (techo ${ceil}%, meta 25%). No agregues más; se diluye con las aportaciones en ~${yearsToCryptoTarget().toFixed(1)} años.`});
-  }
-  ASSET_CLASSES.filter(c=>c.key!=='crypto').forEach(c=>{
-    const a=pct(c.key);
-    if(a<c.target-REBAL_BAND) out.push({type:'info',msg:`${c.label} en ${a.toFixed(1)}% (meta ${c.target}%). El Plan DCA lo prioriza.`});
-    else if(a>c.target+REBAL_BAND) out.push({type:'warn',msg:`${c.label} en ${a.toFixed(1)}% (meta ${c.target}%). No compres más hasta que regrese a la banda de ±${REBAL_BAND} pts.`});
+  const ceil=cryptoCeiling(), out=[];
+  ASSET_CLASSES.forEach(c=>{
+    const s=targetStatus(c.key), a=s.a.toFixed(1);
+    if(s.level==='ok')return;
+    let msg;
+    if(c.key==='crypto') msg=s.level==='bad'
+      ?`Cripto en ${a}% rebasa el techo de ${ceil}% para ${new Date().getFullYear()}. Vende ~${fmt(cryptoExcessUSD())} de BTC (con ganancia) y reinviértelo en los huecos.`
+      :`Cripto en ${a}% (techo ${ceil}%, meta ${c.target}%). No agregues más; se diluye con las aportaciones en ~${yearsToCryptoTarget().toFixed(1)} años.`;
+    else msg=s.a<c.target
+      ?`${c.label} en ${a}% (meta ${c.target}%). El Plan DCA lo prioriza.`
+      :`${c.label} en ${a}% (meta ${c.target}%). No compres más hasta que regrese a la banda de ±${REBAL_BAND} pts.`;
+    out.push({type:s.level,msg});
   });
   return out;
 }
@@ -389,8 +411,8 @@ function renderOverview(){
     <div class="card"><div class="card-lbl">Portafolio activo</div><div class="card-val">${fmt(t)}</div><div class="card-sub">MX+CA+Cripto+Bitso+AGF</div></div>
     <div class="card"><div class="card-lbl">P/L total activo</div><div class="card-val ${pnlPct>=0?'up':'down'}">${fmtPct(pnlPct)}</div><div class="card-sub ${pnlPct>=0?'up':'down'}">${pnlAmt>=0?'+':''}${fmt(pnlAmt)}</div></div>
     <div class="card"><div class="card-lbl">Correlación interna</div><div class="card-val ${wCorr>=0.80?'down':''}">${wCorr.toFixed(2)}</div><div class="card-sub">meta &lt; 0.65</div></div>
-    <div class="card"><div class="card-lbl">Cripto</div><div class="card-val ${cryptoPct>ceil?'down':''}">${cryptoPct.toFixed(1)}%</div><div class="card-sub">techo ${ceil}% · meta 25%</div></div>
-    <div class="card"><div class="card-lbl">Oro</div><div class="card-val ${goldPct<5-REBAL_BAND?'down':''}">${goldPct.toFixed(1)}%</div><div class="card-sub">meta 5%</div></div>`;
+    <div class="card"><div class="card-lbl">Cripto</div><div class="card-val s-${targetStatus('crypto').level}">${cryptoPct.toFixed(1)}%</div><div class="card-sub">techo ${ceil}% · meta 25%</div></div>
+    <div class="card"><div class="card-lbl">Oro</div><div class="card-val s-${targetStatus('gold').level}">${goldPct.toFixed(1)}%</div><div class="card-sub">meta 5%</div></div>`;
 
   const accts=['MX','CA','CRYPTO','BITSO','AGF'];
   const colors={'MX':'#1a50a0','CA':'#b53a2f','CRYPTO':'#8a5f0a','BITSO':'#c45c0a','AGF':'#0d7a5a'};
@@ -438,7 +460,19 @@ function renderOverview(){
   // Alerts — active only
   const alerts=strategyAlerts();
   if(wCorr>0.80)alerts.push({type:'warn',msg:`Correlación interna de ${wCorr.toFixed(2)} — muy alta. El Plan DCA prioriza las clases que la bajan.`});
-  document.getElementById('alertsSection').innerHTML=alerts.map(a=>`<div class="${a.type}" style="font-size:12px;">${a.msg}</div>`).join('');
+  const plan=dcaPlan();
+  document.getElementById('weekAction').innerHTML=`
+    <div class="week-box">
+      <div class="slbl" style="margin-bottom:6px;">Compras de esta semana · ${fmt(DCA_WEEKLY)}</div>
+      ${plan.length?plan.map(c=>{const v=buyVehicle(c.key), accts=v.accts.length?v.accts:['MX'];
+        return `<div class="week-row"><span><span class="tk">${v.ticker}</span> <span style="font-size:11px;color:var(--muted);">${c.label} · ${accts.join(', ')}</span></span><span class="mono up">${fmt(c.amt)}</span></div>`;}).join('')
+        :'<div class="week-row">Todas las clases están en meta.</div>'}
+      <button class="btn btn-sm" style="margin-top:10px;" onclick="sv('dca')">Ver plan DCA</button>
+    </div>
+    <div class="week-box">
+      <div class="slbl" style="margin-bottom:10px;">Alertas de la estrategia</div>
+      ${alerts.length?alerts.map(a=>`<div class="${a.type}">${a.msg}</div>`).join(''):'<div class="ok">Todo en meta. Solo sigue el DCA.</div>'}
+    </div>`;
 }
 
 // ─── POSITIONS ───
@@ -538,26 +572,24 @@ function renderAllocation(){
   const ap=activePos(), t=totalActive();
   const cb=classBreakdown(), ceil=cryptoCeiling();
   document.getElementById('allocCards').innerHTML=ASSET_CLASSES.map(c=>{
-    const a=cb.pct(c.key), lim=c.key==='crypto'?ceil:c.target+REBAL_BAND;
-    const cls=a>lim?'down':(a<c.target-REBAL_BAND||a>c.target+REBAL_BAND)?'':'up';
-    return `<div class="card"><div class="card-lbl">${c.label}</div><div class="card-val ${cls}">${a.toFixed(1)}%</div><div class="card-sub">meta ${c.target}%${c.key==='crypto'?' · techo '+ceil+'%':''}</div></div>`;
+    const st=targetStatus(c.key);
+    return `<div class="card"><div class="card-lbl">${c.label}</div><div class="card-val s-${st.level}">${st.a.toFixed(1)}%</div><div class="card-sub">meta ${c.target}%${c.key==='crypto'?' · techo '+ceil+'%':''}</div></div>`;
   }).join('');
-  const bar=(label,sub,a,usd,color,target,extra)=>{
-    const diff=target==null?null:a-target;
-    const col=diff==null?'var(--text)':diff>REBAL_BAND?'var(--red)':diff<-REBAL_BAND?'var(--blue)':'var(--text)';
+  const bar=(label,sub,a,usd,color,target,extra,level)=>{
+    const diff=target==null?null:a-target, st=level?'s-'+level:'';
     return `<div class="ar">
       <div class="al">${label}<span class="as">${sub}</span></div>
       <div class="bt"><div class="bf" style="width:${Math.min(a,100)}%;background:${color};opacity:.8;"></div>${target!=null?`<div class="btg" style="left:${target}%;"></div>`:''}${extra||''}</div>
-      <div class="ap" style="color:${col}">${a.toFixed(1)}%</div>
+      <div class="ap ${st}">${a.toFixed(1)}%</div>
       <div class="au">${fmt(usd)}</div>
-      <div class="ad ${diff==null?'':diff>REBAL_BAND?'pd':'pn'}">${diff==null?'':(diff>0?'+':'')+diff.toFixed(1)+'%'}</div>
+      <div class="ad mono ${st}" style="font-size:12px;">${diff==null?'':(diff>0?'+':'')+diff.toFixed(1)+'%'}</div>
     </div>`;
   };
   const byCat={};
   ap.forEach(p=>{byCat[p.cat]=(byCat[p.cat]||0)+p.valueUSD;});
-  document.getElementById('allocBars').innerHTML=
+  document.getElementById('allocBars').innerHTML=STATUS_LEGEND+
     ASSET_CLASSES.map(c=>bar(c.label,c.note,cb.pct(c.key),cb.by[c.key],c.color,c.target,
-      c.key==='crypto'?`<div class="btg" style="left:${ceil}%;background:var(--red);" title="Techo ${ceil}%"></div>`:'')).join('')+
+      c.key==='crypto'?`<div class="btg" style="left:${ceil}%;background:var(--red);" title="Techo ${ceil}%"></div>`:'',targetStatus(c.key).level)).join('')+
     `<div class="slbl" style="margin:18px 0 10px;">Detalle por categoría — informativo, sin meta</div>`+
     Object.entries(byCat).sort((a,b)=>b[1]-a[1]).map(([k,v])=>bar(catLabel(k),'',v/t*100,v,'#9a9a90',null)).join('');
   document.getElementById('allocAlerts').innerHTML=strategyAlerts().map(a=>`<div class="${a.type}">${a.msg}</div>`).join('');
@@ -686,7 +718,7 @@ async function generateRecs(){
       return `${p.ticker}(${p.acct},${assetClass(p)}) ${fmt(p.valueUSD)} PL${pnl>=0?'+':''}${pnl.toFixed(0)}%`;
     }).join(' | ');
     const actual=ASSET_CLASSES.map(c=>`${c.label} ${cb.pct(c.key).toFixed(1)}% (meta ${c.target}%)`).join(' | ');
-    const plan=dcaPlan().map(c=>`${c.label} $${c.amt}`).join(', ')||'sin huecos';
+    const plan=dcaPlan().map(c=>`${c.label} $${c.amt} en ${buyVehicle(c.key).ticker}`).join(', ')||'sin huecos';
 
     bar.style.width='65%'; loadTxt.textContent='Generando recomendaciones...';
 
@@ -700,7 +732,7 @@ Top posiciones: ${topPos}
 Correlacion interna estimada: ${wc.toFixed(2)}
 Mercado: ${MARKET_CTX}
 
-Tarea: "buy" = 4 tickers concretos para ejecutar el plan DCA (nunca cripto); dca_weekly debe sumar ${DCA_WEEKLY}. "reduce" = hasta 3 posiciones que no encajan con la estrategia o son redundantes, explicando si conviene vender ya o solo dejar de comprar.
+Tarea: "buy" = una entrada por cada linea del plan DCA, usando esos mismos tickers (ya estan en el portafolio; nunca cripto ni ETFs nuevos que dupliquen exposicion); dca_weekly debe sumar ${DCA_WEEKLY}. "reduce" = hasta 3 posiciones que no encajan con la estrategia o son redundantes, explicando si conviene vender ya o solo dejar de comprar.
 
 Responde SOLO con JSON sin texto extra ni markdown:
 {"market_context":"resumen breve","buy":[{"ticker":"VXUS","name":"nombre","action":"Comprar","rationale":"especifico al portafolio y la estrategia","corr_sp500":0.8,"dca_weekly":150,"account":"MX"}],"reduce":[{"ticker":"XXX","reason":"especifico"}]}`}], false);
@@ -774,20 +806,25 @@ function renderDCA(){
   document.getElementById('dcaCards').innerHTML=`
     <div class="card"><div class="card-lbl">Aportación semanal</div><div class="card-val up">${fmt(DCA_WEEKLY)}</div><div class="card-sub">USD · nunca a cripto</div></div>
     <div class="card"><div class="card-lbl">Aportación anual</div><div class="card-val">${fmt(DCA_WEEKLY*52)}</div><div class="card-sub">52 semanas</div></div>
-    <div class="card"><div class="card-lbl">Cripto hoy</div><div class="card-val">${cb.pct('crypto').toFixed(1)}%</div><div class="card-sub">techo ${cryptoCeiling()}% · meta 25%</div></div>
+    <div class="card"><div class="card-lbl">Cripto hoy</div><div class="card-val s-${targetStatus('crypto').level}">${cb.pct('crypto').toFixed(1)}%</div><div class="card-sub">techo ${cryptoCeiling()}% · meta 25%</div></div>
     <div class="card"><div class="card-lbl">Años a cripto 25%</div><div class="card-val">${yrs>0?yrs.toFixed(1):'—'}</div><div class="card-sub">solo con aportaciones, cripto plano</div></div>`;
   document.getElementById('dcaPhases').innerHTML=`<div class="info" style="grid-column:1/-1;margin:0;">El reparto se recalcula con tus posiciones actuales: el dinero va a las clases por debajo de su meta, en proporción al hueco en USD. Cripto no recibe aportaciones hasta llegar a 25%.</div>`;
-  document.getElementById('weeklyTbl').innerHTML=plan.length?plan.map(c=>`<tr>
-    <td><span class="tk">${c.buy}</span><br><span style="font-size:11px;color:var(--muted);">${c.label}</span></td>
+  document.getElementById('weeklyTbl').innerHTML=plan.length?plan.map(c=>{
+    const v=buyVehicle(c.key), accts=v.accts.length?v.accts:['MX'];
+    const origin=v.held?'Ya la tienes: acumular más':'Nueva posición';
+    const others=v.others.length?` · también tienes ${v.others.join(', ')} (no agregar)`:'';
+    return `<tr>
+    <td><span class="tk">${v.ticker}</span><br><span style="font-size:11px;color:var(--muted);">${c.label}</span></td>
     <td><span class="mono up">${fmt(c.amt)}</span></td>
-    <td style="font-size:12px;color:var(--muted);">${cb.pct(c.key).toFixed(1)}% → meta ${c.target}% · faltan ${fmt(c.gap)}</td>
-    <td><span class="abadge ${acctClass('MX')}">MX</span></td>
-  </tr>`).join(''):`<tr><td colspan="4" style="color:var(--muted);font-size:12px;">Todas las clases están en su meta.</td></tr>`;
+    <td style="font-size:12px;color:var(--muted);">${cb.pct(c.key).toFixed(1)}% → meta ${c.target}% · faltan ${fmt(c.gap)}<br>${origin}${others}</td>
+    <td>${accts.map(a=>`<span class="abadge ${acctClass(a)}">${a}</span>`).join(' ')}</td>
+  </tr>`;}).join(''):`<tr><td colspan="4" style="color:var(--muted);font-size:12px;">Todas las clases están en su meta.</td></tr>`;
 }
 
 // ─── ESTRATEGIA (vista) ───
 const STRATEGY_RULES=[
   ['Dinero nuevo',`Los ${fmt(DCA_WEEKLY)}/semana se reparten entre las clases por debajo de su meta (ver Plan DCA). Cripto no recibe aportaciones hasta llegar a 25%.`],
+  ['Acumular en lo que ya tienes','Cada clase se compra con el ETF amplio que ya tienes (VEA para internacional, VTI para EE.UU., GLD para oro). No se abren posiciones nuevas que dupliquen exposición: VGK ya está contenido en VEA.'],
   ['Techo de cripto','Si cripto rebasa el techo del año, se vende BTC con ganancia hasta volver al techo y se reinvierte en los huecos. Nunca se vende cripto en pérdida para rebalancear.'],
   ['Altcoins','SOL, AAVE, LINK, ARB, UNI y HYPE quedan fuera de la tesis: no se agregan. Evaluar con el contador venderlas para aprovechar la pérdida fiscal.'],
   ['ETH / stETH','Pendiente decidir si forman parte de la tesis de reserva de valor. Mientras tanto, no se agregan.'],
@@ -798,23 +835,19 @@ const STRATEGY_RULES=[
 ];
 function renderStrategy(){
   const cb=classBreakdown(), ceil=cryptoCeiling(), yr=new Date().getFullYear();
-  const status=c=>{
-    const a=cb.pct(c.key);
-    if(c.key==='crypto') return a>ceil?['pd','Arriba del techo']:a>c.target+REBAL_BAND?['pn','En transición']:['pu','En meta'];
-    return a>c.target+REBAL_BAND?['pd','Arriba']:a<c.target-REBAL_BAND?['pn','Debajo']:['pu','En meta'];
-  };
   const years=Object.keys(CRYPTO_CEILING).map(Number).sort();
   document.getElementById('strategyDetail').innerHTML=`
     <div class="info" style="margin-bottom:16px;">Estrategia vigente · adoptada el ${STRATEGY_DATE}. Construir patrimonio a 15 años con un núcleo de acciones globales, reduciendo gradualmente la concentración en cripto sin vender en pérdida. BTC se mantiene como reserva de valor de largo plazo.</div>
+    ${STATUS_LEGEND}
     <div class="tbl-wrap">
       <div class="tbl-bar"><span>Asignación objetivo</span><span>${fmt(cb.t)} activo</span></div>
       <table>
         <thead><tr><th>Clase de activo</th><th>Meta</th><th>Actual</th><th>Estado</th><th>Qué incluye</th></tr></thead>
-        <tbody>${ASSET_CLASSES.map(c=>{const [cls,txt]=status(c);return `<tr>
+        <tbody>${ASSET_CLASSES.map(c=>{const st=targetStatus(c.key);return `<tr>
           <td><span class="tk">${c.label}</span></td>
           <td class="mono">${c.target}%${c.key==='crypto'?`<br><span style="font-size:11px;color:var(--muted);">techo ${ceil}%</span>`:''}</td>
           <td class="mono">${cb.pct(c.key).toFixed(1)}%</td>
-          <td><span class="${cls}">${txt}</span></td>
+          <td><span class="mono s-${st.level}" style="font-size:12px;">${st.label}</span></td>
           <td style="font-size:12px;color:var(--muted);">${c.note}</td></tr>`;}).join('')}</tbody>
       </table>
     </div>
@@ -1042,14 +1075,24 @@ function saveMarketCtx(){
   document.getElementById('st-mktctx').style.color='var(--green)';
 }
 
-function gotoSetup(){sv('setup',null);document.querySelectorAll('.nb').forEach(b=>{if(b.getAttribute('onclick')&&b.getAttribute('onclick').includes("'setup'"))b.classList.add('active');});}
+function gotoSetup(){sv('setup');}
 
 // ─── NAV ───
-function sv(view,btn){
+// ─── NAVEGACIÓN (dos niveles) ───
+const NAV=[
+  {group:'Portafolio',views:[['overview','Resumen'],['positions','Posiciones'],['allocation','Asignación'],['correlation','Correlación']]},
+  {group:'Plan',views:[['strategy','Estrategia'],['dca','Plan DCA'],['recs','Recomendaciones']]},
+  {group:'Cuentas',views:[['retirement','Retiro'],['historial','Historial']]},
+];
+function renderNav(view){
+  const g=NAV.find(x=>x.views.some(([v])=>v===view));
+  document.getElementById('navMain').innerHTML=NAV.map(x=>`<button class="nb${x===g?' active':''}" onclick="sv('${x.views[0][0]}')">${x.group}</button>`).join('');
+  document.getElementById('navSub').innerHTML=g?g.views.map(([v,l])=>`<button class="sb${v===view?' active':''}" onclick="sv('${v}')">${l}</button>`).join(''):'';
+}
+function sv(view){
   document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
-  document.querySelectorAll('.nb').forEach(b=>b.classList.remove('active'));
   document.getElementById('view-'+view).classList.add('active');
-  if(btn)btn.classList.add('active');
+  renderNav(view);
   if(view==='overview')renderOverview();
   if(view==='strategy')renderStrategy();
   if(view==='positions')renderPositions();
@@ -1114,4 +1157,5 @@ function startApp(){
   setInterval(()=>{const h=new Date().getHours();if(h>=8&&h<17&&sheetUrl)fetchAll();},5*60*1000);
 }
 
+renderNav('overview');
 bootAuth();
