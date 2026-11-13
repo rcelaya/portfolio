@@ -479,7 +479,7 @@ const TARGETS=[
   {cat:'hedge',label:'Hedge — GLD',sub:'GLD · oro',target:12,color:'#854f0b'},
   {cat:'bio',label:'Biotecnología',sub:'ILMN·GRAL',target:2,color:'#0d7a5a'},
   {cat:'metals',label:'Metales',sub:'ICOP·GLD-Bitso',target:3,color:'#c45c0a'},
-  {cat:'cash',label:'Efectivo / Cash',sub:'CASH-MX·CASH-CA',target:0,color:'#6a7080'},
+  {cat:'cash',label:'Efectivo / Cash',sub:'CASH-MX·CASH-CA',target:5,color:'#6a7080'},
 ];
 function renderAllocation(){
   const ap=activePos(), t=totalActive();
@@ -640,12 +640,13 @@ async function generateRecs(){
 
     const hedgePct=((byCat.hedge||0)/t*100).toFixed(1);
     const intlPct=((byCat.intl||0)/t*100).toFixed(1);
+    const cashPct=((byCat.cash||0)/t*100).toFixed(1);
 
     bar.style.width='65%'; loadTxt.textContent='Generando recomendaciones...';
 
-    const s2=await callProxy([{role:'user',content:`Asesor de inversiones. Portafolio activo: ${topPos5} | Categorias: ${catBk} | Correlacion interna: ${wc.toFixed(2)} (meta<0.65) | GLD/hedge actual: ${hedgePct}% (meta 12%) | Internacional: ${intlPct}% (meta 10%) | DCA disponible $300/sem cuenta MX | Horizonte 15yr | Mercado: ${MARKET_CTX}
+    const s2=await callProxy([{role:'user',content:`Asesor de inversiones. Portafolio activo: ${topPos5} | Categorias: ${catBk} | Correlacion interna: ${wc.toFixed(2)} (meta<0.65) | GLD/hedge actual: ${hedgePct}% (meta 12%) | Internacional: ${intlPct}% (meta 10%) | Cash: ${cashPct}% (meta 5%, MXN rinde 6.5% fijo) | DCA disponible $300/sem cuenta MX | Horizonte 15yr | Mercado: ${MARKET_CTX}
 
-IMPORTANTE: hedge en ${hedgePct}% - si es menor a 10% GLD DEBE estar en buy con prioridad urgente. DCA debe alinearse con los gaps reales del portafolio.
+IMPORTANTE: hedge en ${hedgePct}% - si es menor a 10% GLD DEBE estar en buy con prioridad urgente. DCA debe alinearse con los gaps reales del portafolio. Si cash supera 8%, sugiere desplegarlo hacia los gaps; si es menor a 3%, sugiere reforzarlo.
 
 Responde SOLO con JSON sin texto extra ni markdown:
 {"market_context":"resumen breve","buy":[{"ticker":"GLD","name":"SPDR Gold Shares","action":"Comprar urgente","rationale":"especifico al portafolio","corr_sp500":0.05,"dca_weekly":150,"account":"MX"}],"reduce":[{"ticker":"ARB","reason":"especifico"}]}
