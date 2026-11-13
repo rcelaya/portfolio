@@ -170,6 +170,9 @@ const STATIC_POSITIONS = [
   {ticker:'AFORE',name:'AFORE México',units:1,costUSD:1385366*MXN_USD,priceUSD:1385366*MXN_USD,cat:'retiro',acct:'RETIRO'},
   // AGF — portafolio activo (cuenta de inversión gestionada)
   {ticker:'AGF-CA',name:'AGF Canadá',units:1,costUSD:24700*CAD_USD,priceUSD:31588*CAD_USD,cat:'index',acct:'AGF'},
+  // Cash — se actualiza desde Configurar
+  {ticker:'CASH-MX',name:'Efectivo MXN 6.5% fijo',units:1,costUSD:0,priceUSD:0,cat:'cash',acct:'MX'},
+  {ticker:'CASH-CA',name:'Efectivo CAD',units:1,costUSD:0,priceUSD:0,cat:'cash',acct:'CA'},
 ];
 
 let positions = STATIC_POSITIONS.map(p=>({...p,valueUSD:p.units*p.priceUSD,costTotalUSD:p.units*p.costUSD}));
@@ -192,8 +195,8 @@ const totalActive= ()=>activePos().reduce((s,p)=>s+p.valueUSD,0);
 const totalRetiro= ()=>retiroPos().reduce((s,p)=>s+p.valueUSD,0);
 const totalAll   = ()=>positions.reduce((s,p)=>s+p.valueUSD,0);
 
-const catClass = c=>({index:'ci',tech:'ct',crypto:'cc',intl:'cl',defense:'cd',hedge:'ch',bio:'cb',retiro:'cd',metals:'ch'}[c]||'ci');
-const catLabel = c=>({index:'Index',tech:'Tech',crypto:'Crypto',intl:'Internacional',defense:'Defensa',hedge:'Hedge',bio:'Biotech',retiro:'Retiro',metals:'Metales'}[c]||c);
+const catClass = c=>({index:'ci',tech:'ct',crypto:'cc',intl:'cl',defense:'cd',hedge:'ch',bio:'cb',retiro:'cd',metals:'ch',cash:'cm'}[c]||'ci');
+const catLabel = c=>({index:'Index',tech:'Tech',crypto:'Crypto',intl:'Internacional',defense:'Defensa',hedge:'Hedge',bio:'Biotech',retiro:'Retiro',metals:'Metales',cash:'Efectivo'}[c]||c);
 const acctLabel = a=>({MX:'MX',CA:'CA',CA2:'CA2',CRYPTO:'Cripto',RETIRO:'Retiro',BITSO:'Bitso',AGF:'AGF'}[a]||a);
 const acctClass = a=>({MX:'a-mx',CA:'a-ca',CA2:'a-ca',CRYPTO:'a-cr',RETIRO:'a-rr',BITSO:'a-cr',AGF:'a-rr'}[a]||'a-mx');
 
@@ -220,6 +223,8 @@ async function fetchAll(){
         if(p.ticker==='RRSP-WS'){positions[i].priceUSD=(d.rrspWs||29499)*cu;positions[i].valueUSD=positions[i].priceUSD;positions[i].costTotalUSD=(d.rrspWsCost||26066)*cu;}
         if(p.ticker==='AGF-CA'){positions[i].priceUSD=(d.agf||31588)*cu;positions[i].valueUSD=positions[i].priceUSD;positions[i].costTotalUSD=(d.agfCost||24700)*cu;}
         if(p.ticker==='AFORE'){positions[i].priceUSD=(d.afore||1385366)*(d.mxn||0.0488);positions[i].valueUSD=positions[i].priceUSD;positions[i].costTotalUSD=(d.aforeCost||d.afore||1385366)*(d.mxn||0.0488);}
+        if(p.ticker==='CASH-MX'){const v=(d.cashMx||0)*(d.mxn||0.0488);positions[i].priceUSD=v;positions[i].valueUSD=v;positions[i].costTotalUSD=v;}
+        if(p.ticker==='CASH-CA'){const v=(d.cashCa||0)*cu;positions[i].priceUSD=v;positions[i].valueUSD=v;positions[i].costTotalUSD=v;}
       });
     }catch(e){}}
 
@@ -474,6 +479,7 @@ const TARGETS=[
   {cat:'hedge',label:'Hedge — GLD',sub:'GLD · oro',target:12,color:'#854f0b'},
   {cat:'bio',label:'Biotecnología',sub:'ILMN·GRAL',target:2,color:'#0d7a5a'},
   {cat:'metals',label:'Metales',sub:'ICOP·GLD-Bitso',target:3,color:'#c45c0a'},
+  {cat:'cash',label:'Efectivo / Cash',sub:'CASH-MX·CASH-CA',target:0,color:'#6a7080'},
 ];
 function renderAllocation(){
   const ap=activePos(), t=totalActive();
@@ -510,7 +516,7 @@ function renderAllocation(){
 }
 
 // ─── CORRELATION (active only) ───
-const CAT_CORR={index:0.98,tech:0.87,crypto:0.52,intl:0.82,defense:0.68,hedge:0.05,bio:0.55,metals:0.15};
+const CAT_CORR={index:0.98,tech:0.87,crypto:0.52,intl:0.82,defense:0.68,hedge:0.05,bio:0.55,metals:0.15,cash:0.01};
 function calcCorr(){
   const ap=activePos(), t=totalActive();
   const byCat={};
@@ -830,14 +836,18 @@ function saveManual(){
   const agfCost=parseFloat(document.getElementById('val-agf-cost').value)||24700;
   const cad=parseFloat(document.getElementById('val-cadrate').value)||1.3719;
   const mxn=parseFloat(document.getElementById('val-mxnrate').value)||0.0488;
+  const cashMx=parseFloat(document.getElementById('val-cash-mx').value)||0;
+  const cashCa=parseFloat(document.getElementById('val-cash-ca').value)||0;
   const cu=1/cad;
   positions.forEach((p,i)=>{
     if(p.ticker==='RRSP-SC'){positions[i].priceUSD=rrspSc*cu;positions[i].valueUSD=rrspSc*cu;positions[i].costTotalUSD=rrspScCost*cu;}
     if(p.ticker==='RRSP-WS'){positions[i].priceUSD=rrspWs*cu;positions[i].valueUSD=rrspWs*cu;positions[i].costTotalUSD=rrspWsCost*cu;}
     if(p.ticker==='AGF-CA'){positions[i].priceUSD=agf*cu;positions[i].valueUSD=agf*cu;positions[i].costTotalUSD=agfCost*cu;}
     if(p.ticker==='AFORE'){positions[i].priceUSD=afore*mxn;positions[i].valueUSD=afore*mxn;positions[i].costTotalUSD=aforeCost*mxn;}
+    if(p.ticker==='CASH-MX'){const v=cashMx*mxn;positions[i].priceUSD=v;positions[i].valueUSD=v;positions[i].costTotalUSD=v;}
+    if(p.ticker==='CASH-CA'){const v=cashCa*cu;positions[i].priceUSD=v;positions[i].valueUSD=v;positions[i].costTotalUSD=v;}
   });
-  localStorage.setItem('plv2_manual',JSON.stringify({afore,aforeCost,rrspSc,rrspScCost,rrspWs,rrspWsCost,agf,agfCost,cad,mxn}));
+  localStorage.setItem('plv2_manual',JSON.stringify({afore,aforeCost,rrspSc,rrspScCost,rrspWs,rrspWsCost,agf,agfCost,cad,mxn,cashMx,cashCa}));
   document.getElementById('st-manual').textContent='Guardado ✓';
   document.getElementById('st-manual').style.color='var(--green)';
   renderAll();
@@ -988,6 +998,8 @@ function sv(view,btn){
       if(d.agfCost)document.getElementById('val-agf-cost').value=d.agfCost;
       if(d.cad)document.getElementById('val-cadrate').value=d.cad;
       if(d.mxn)document.getElementById('val-mxnrate').value=d.mxn;
+      if(d.cashMx)document.getElementById('val-cash-mx').value=d.cashMx;
+      if(d.cashCa)document.getElementById('val-cash-ca').value=d.cashCa;
     }catch(e){}}
     if(sheetUrl)document.getElementById('urlMain').value=sheetUrl;
     if(cryptoUrl)document.getElementById('urlCrypto').value=cryptoUrl;
@@ -1006,6 +1018,8 @@ if(savedM){try{
     if(p.ticker==='RRSP-WS'){positions[i].priceUSD=(d.rrspWs||29499)*cu;positions[i].valueUSD=positions[i].priceUSD;positions[i].costTotalUSD=(d.rrspWsCost||26066)*cu;}
     if(p.ticker==='AGF-CA'){positions[i].priceUSD=(d.agf||31588)*cu;positions[i].valueUSD=positions[i].priceUSD;positions[i].costTotalUSD=(d.agfCost||24700)*cu;}
     if(p.ticker==='AFORE'){positions[i].priceUSD=(d.afore||1385366)*(d.mxn||0.0488);positions[i].valueUSD=positions[i].priceUSD;positions[i].costTotalUSD=(d.aforeCost||d.afore||1385366)*(d.mxn||0.0488);}
+    if(p.ticker==='CASH-MX'){const v=(d.cashMx||0)*(d.mxn||0.0488);positions[i].priceUSD=v;positions[i].valueUSD=v;positions[i].costTotalUSD=v;}
+    if(p.ticker==='CASH-CA'){const v=(d.cashCa||0)*cu;positions[i].priceUSD=v;positions[i].valueUSD=v;positions[i].costTotalUSD=v;}
   });
 }catch(e){}}
 

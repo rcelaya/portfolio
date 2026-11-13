@@ -294,7 +294,16 @@
             <input class="url-input" id="val-mxnrate" type="number" placeholder="0.0488" step="0.0001" style="width:100%;padding:7px 10px;">
           </div>
         </div>
-        <button class="btn btn-p" style="margin-top:10px;" onclick="saveManual()">Guardar valores de retiro</button>
+          <div style="grid-column:1/-1;margin-top:12px;padding-top:12px;border-top:1px solid var(--border);font-size:11px;font-family:var(--mono);color:var(--muted);text-transform:uppercase;letter-spacing:.06em;">Efectivo / Cash</div>
+          <div>
+            <div style="font-size:11px;color:var(--muted);font-family:var(--mono);margin-bottom:4px;">Cash MXN (pesos) — ej. CETES, Fondo</div>
+            <input class="url-input" id="val-cash-mx" type="number" placeholder="0" style="width:100%;padding:7px 10px;">
+          </div>
+          <div>
+            <div style="font-size:11px;color:var(--muted);font-family:var(--mono);margin-bottom:4px;">Cash CAD (dólares canadienses)</div>
+            <input class="url-input" id="val-cash-ca" type="number" placeholder="0" style="width:100%;padding:7px 10px;">
+          </div>
+        <button class="btn btn-p" style="margin-top:10px;" onclick="saveManual()">Guardar valores</button>
         <div id="st-manual" style="font-size:11px;font-family:var(--mono);margin-top:6px;color:var(--muted);"></div>
       </div>
     </div>
