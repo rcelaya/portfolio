@@ -195,8 +195,74 @@ const totalActive= ()=>activePos().reduce((s,p)=>s+p.valueUSD,0);
 const totalRetiro= ()=>retiroPos().reduce((s,p)=>s+p.valueUSD,0);
 const totalAll   = ()=>positions.reduce((s,p)=>s+p.valueUSD,0);
 
-const catClass = c=>({index:'ci',tech:'ct',crypto:'cc',intl:'cl',defense:'cd',hedge:'ch',bio:'cb',retiro:'cd',metals:'ch',cash:'cm'}[c]||'ci');
-const catLabel = c=>({index:'Index',tech:'Tech',crypto:'Crypto',intl:'Internacional',defense:'Defensa',hedge:'Hedge',bio:'Biotech',retiro:'Retiro',metals:'Metales',cash:'Efectivo'}[c]||c);
+const catClass = c=>({index:'ci',tech:'ct',crypto:'cc',intl:'cl',defense:'cd',hedge:'ch',bio:'cb',retiro:'cd',cash:'cm'}[c]||'ci');
+const catLabel = c=>({index:'Index',tech:'Tech',crypto:'Cripto',intl:'Internacional',defense:'Defensa',hedge:'Oro',bio:'Biotech',retiro:'Retiro',cash:'Efectivo'}[c]||c);
+
+// ─── ESTRATEGIA (opción A) ───
+// Fuente única de metas y reglas: la usan Estrategia, Asignación, Plan DCA y el prompt de IA.
+const STRATEGY_DATE='13 nov 2026';
+const ASSET_CLASSES=[
+  {key:'us',    label:'Acciones EE.UU.',          target:42, color:'#1a50a0', buy:'VTI',          note:'Índices + acciones individuales de EE.UU.'},
+  {key:'intl',  label:'Acciones internacionales', target:18, color:'#5a3fa0', buy:'VXUS',         note:'Desarrollados y emergentes fuera de EE.UU.'},
+  {key:'crypto',label:'Cripto',                   target:25, color:'#b53a2f', buy:null,           note:'BTC como reserva de valor; incluye COIN y BMNR'},
+  {key:'gold',  label:'Oro',                      target:5,  color:'#854f0b', buy:'GLD',          note:'Cobertura ante caídas e inflación'},
+  {key:'fixed', label:'Renta fija / Cash',        target:10, color:'#6a7080', buy:'Cash MXN 6.5%', note:'Colchón de liquidez; MXN rinde 6.5% fijo'},
+];
+const CLASS_OVERRIDES={TSM:'intl'};
+// Techo de cripto por año: baja gradualmente hasta la meta de 25% sin forzar ventas en pérdida.
+const CRYPTO_CEILING={2026:45,2027:40,2028:36,2029:32,2030:28};
+const cryptoCeiling=()=>CRYPTO_CEILING[new Date().getFullYear()]??25;
+const REBAL_BAND=3;
+const DCA_WEEKLY=300;
+
+function assetClass(p){
+  if(CLASS_OVERRIDES[p.ticker])return CLASS_OVERRIDES[p.ticker];
+  return ({crypto:'crypto',hedge:'gold',cash:'fixed',intl:'intl'}[p.cat])||'us';
+}
+function classBreakdown(){
+  const t=totalActive(), by={};
+  ASSET_CLASSES.forEach(c=>by[c.key]=0);
+  activePos().forEach(p=>{by[assetClass(p)]+=p.valueUSD;});
+  return {t,by,pct:k=>t>0?by[k]/t*100:0};
+}
+// Reparte el DCA semanal entre las clases por debajo de su meta, proporcional al hueco en USD. Nunca a cripto.
+function dcaPlan(){
+  const {t,by}=classBreakdown();
+  const gaps=ASSET_CLASSES.filter(c=>c.key!=='crypto')
+    .map(c=>({...c,gap:Math.max(0,c.target/100*t-by[c.key])})).filter(c=>c.gap>0);
+  const sum=gaps.reduce((s,c)=>s+c.gap,0);
+  if(!sum)return [];
+  const plan=gaps.map(c=>({...c,amt:Math.round(DCA_WEEKLY*c.gap/sum/10)*10})).filter(c=>c.amt>0)
+    .sort((a,b)=>b.amt-a.amt);
+  if(plan.length)plan[0].amt+=DCA_WEEKLY-plan.reduce((s,c)=>s+c.amt,0);
+  return plan;
+}
+// Venta de cripto (con ganancia) necesaria para volver al techo, reinvirtiendo en los huecos.
+function cryptoExcessUSD(){
+  const {t,by}=classBreakdown();
+  return Math.max(0,by.crypto-cryptoCeiling()/100*t);
+}
+function strategyAlerts(){
+  const {pct}=classBreakdown(), ceil=cryptoCeiling(), out=[];
+  const cp=pct('crypto');
+  if(cp>ceil){
+    out.push({type:'warn',msg:`Cripto en ${cp.toFixed(1)}% rebasa el techo de ${ceil}% para ${new Date().getFullYear()}. Regla: vende ~${fmt(cryptoExcessUSD())} de BTC (con ganancia) y reinviértelo en los huecos.`});
+  } else if(cp>25+REBAL_BAND){
+    out.push({type:'info',msg:`Cripto en ${cp.toFixed(1)}% (techo ${ceil}%, meta 25%). No agregues más; se diluye con las aportaciones en ~${yearsToCryptoTarget().toFixed(1)} años.`});
+  }
+  ASSET_CLASSES.filter(c=>c.key!=='crypto').forEach(c=>{
+    const a=pct(c.key);
+    if(a<c.target-REBAL_BAND) out.push({type:'info',msg:`${c.label} en ${a.toFixed(1)}% (meta ${c.target}%). El Plan DCA lo prioriza.`});
+    else if(a>c.target+REBAL_BAND) out.push({type:'warn',msg:`${c.label} en ${a.toFixed(1)}% (meta ${c.target}%). No compres más hasta que regrese a la banda de ±${REBAL_BAND} pts.`});
+  });
+  return out;
+}
+// Años para llegar a la meta solo con aportaciones, si cripto se mantiene plano.
+function yearsToCryptoTarget(){
+  const {t,by}=classBreakdown(), tgt=ASSET_CLASSES.find(c=>c.key==='crypto').target/100;
+  const need=by.crypto/tgt-t;
+  return need>0?need/(DCA_WEEKLY*52):0;
+}
 const acctLabel = a=>({MX:'MX',CA:'CA',CA2:'CA2',CRYPTO:'Cripto',RETIRO:'Retiro',BITSO:'Bitso',AGF:'AGF'}[a]||a);
 const acctClass = a=>({MX:'a-mx',CA:'a-ca',CA2:'a-ca',CRYPTO:'a-cr',RETIRO:'a-rr',BITSO:'a-cr',AGF:'a-rr'}[a]||'a-mx');
 
@@ -292,6 +358,7 @@ function renderAll(){
   if(!active)return;
   const id=active.id.replace('view-','');
   if(id==='overview')renderOverview();
+  if(id==='strategy')renderStrategy();
   if(id==='positions')renderPositions();
   if(id==='allocation')renderAllocation();
   if(id==='correlation')renderCorrelation();
@@ -314,16 +381,16 @@ function renderOverview(){
   ap.forEach(p=>{byCat[p.cat]=(byCat[p.cat]||0)+p.valueUSD;});
   const totalCost=ap.reduce((s,p)=>s+p.costTotalUSD,0);
   const pnlAmt=t-totalCost, pnlPct=totalCost>0?(pnlAmt/totalCost)*100:0;
-  const cryptoPct=(byCat.crypto||0)/t*100;
-  const hedgePct=(byCat.hedge||0)/t*100;
+  const cb=classBreakdown();
+  const cryptoPct=cb.pct('crypto'), goldPct=cb.pct('gold'), ceil=cryptoCeiling();
   const wCorr=calcCorr();
 
   document.getElementById('overviewCards').innerHTML=`
-    <div class="card"><div class="card-lbl">Portafolio activo</div><div class="card-val">${fmt(t)}</div><div class="card-sub">MX+CA+Cripto+Bitso</div></div>
+    <div class="card"><div class="card-lbl">Portafolio activo</div><div class="card-val">${fmt(t)}</div><div class="card-sub">MX+CA+Cripto+Bitso+AGF</div></div>
     <div class="card"><div class="card-lbl">P/L total activo</div><div class="card-val ${pnlPct>=0?'up':'down'}">${fmtPct(pnlPct)}</div><div class="card-sub ${pnlPct>=0?'up':'down'}">${pnlAmt>=0?'+':''}${fmt(pnlAmt)}</div></div>
     <div class="card"><div class="card-lbl">Correlación interna</div><div class="card-val ${wCorr>=0.80?'down':''}">${wCorr.toFixed(2)}</div><div class="card-sub">meta &lt; 0.65</div></div>
-    <div class="card"><div class="card-lbl">Crypto activo</div><div class="card-val ${cryptoPct>10?'down':''}">${cryptoPct.toFixed(1)}%</div><div class="card-sub">target ≤ 8%</div></div>
-    <div class="card"><div class="card-lbl">Hedge (GLD)</div><div class="card-val ${hedgePct<5?'down':''}">${hedgePct.toFixed(1)}%</div><div class="card-sub">target 10–15%</div></div>`;
+    <div class="card"><div class="card-lbl">Cripto</div><div class="card-val ${cryptoPct>ceil?'down':''}">${cryptoPct.toFixed(1)}%</div><div class="card-sub">techo ${ceil}% · meta 25%</div></div>
+    <div class="card"><div class="card-lbl">Oro</div><div class="card-val ${goldPct<5-REBAL_BAND?'down':''}">${goldPct.toFixed(1)}%</div><div class="card-sub">meta 5%</div></div>`;
 
   const accts=['MX','CA','CRYPTO','BITSO','AGF'];
   const colors={'MX':'#1a50a0','CA':'#b53a2f','CRYPTO':'#8a5f0a','BITSO':'#c45c0a','AGF':'#0d7a5a'};
@@ -341,13 +408,12 @@ function renderOverview(){
       </div></div>`;
   }).join('');
 
-  // Donut — active only
-  const catColors={'index':'#1a50a0','tech':'#1a6b3a','crypto':'#b53a2f','intl':'#5a3fa0','defense':'#8a5f0a','hedge':'#854f0b','bio':'#0d7a5a','metals':'#c45c0a'};
-  const catEntries=Object.entries(byCat).filter(([,v])=>v>0);
+  // Donut — por clase de activo
+  const clsEntries=ASSET_CLASSES.filter(c=>cb.by[c.key]>0);
   if(donutChart)donutChart.destroy();
   donutChart=new Chart(document.getElementById('donutChart'),{type:'doughnut',data:{
-    labels:catEntries.map(([k])=>catLabel(k)),
-    datasets:[{data:catEntries.map(([,v])=>Math.round(v)),backgroundColor:catEntries.map(([k])=>catColors[k]||'#888'),borderWidth:0,hoverOffset:4}]},
+    labels:clsEntries.map(c=>c.label),
+    datasets:[{data:clsEntries.map(c=>Math.round(cb.by[c.key])),backgroundColor:clsEntries.map(c=>c.color),borderWidth:0,hoverOffset:4}]},
     options:{responsive:true,maintainAspectRatio:false,cutout:'65%',plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>`${ctx.label}: ${fmt(ctx.parsed)} (${(ctx.parsed/t*100).toFixed(1)}%)`}}}}
   });
 
@@ -370,10 +436,8 @@ function renderOverview(){
   }).join('');
 
   // Alerts — active only
-  const alerts=[];
-  if(cryptoPct>10)alerts.push({type:'warn',msg:`Crypto en ${cryptoPct.toFixed(1)}% del portafolio activo. Considera consolidar altcoins pequeños (ARB, UNI) en BTC o ETH.`});
-  if(hedgePct<3)alerts.push({type:'warn',msg:`Sin GLD — el gap más crítico. Sin correlación negativa, una caída del 30% arrastraría el 85%+ del portafolio activo simultáneamente.`});
-  if(wCorr>0.80)alerts.push({type:'warn',msg:`Correlación interna de ${wCorr.toFixed(2)} — muy alta. Los primeros $300 semanales deberían ir a GLD para bajar este número.`});
+  const alerts=strategyAlerts();
+  if(wCorr>0.80)alerts.push({type:'warn',msg:`Correlación interna de ${wCorr.toFixed(2)} — muy alta. El Plan DCA prioriza las clases que la bajan.`});
   document.getElementById('alertsSection').innerHTML=alerts.map(a=>`<div class="${a.type}" style="font-size:12px;">${a.msg}</div>`).join('');
 }
 
@@ -384,7 +448,7 @@ function sortBy(col){
   renderPositions();
 }
 function renderPositions(){
-  const t=totalAll();
+  const t=(acctFilter==='all'||acctFilter==='RETIRO')?totalAll():totalActive();
   let filtered;
   const isCombined=acctFilter==='combined';
   if(acctFilter==='active'||isCombined) filtered=activePos();
@@ -458,7 +522,7 @@ function renderPositions(){
     <td></td><td></td><td></td><td></td>
     <td style="font-family:var(--mono);font-size:13px;font-weight:500;padding:12px 16px;">${fmt(filteredTotal)}</td>
     <td style="padding:12px 16px;"><span class="${filteredPnlPct>=0?'pu':'pd'}">${fmtPct(filteredPnlPct)}<br><span style="font-size:11px;">${filteredPnlAmt>=0?'+':''}${fmt(filteredPnlAmt)}</span></span></td>
-    <td style="font-family:var(--mono);font-size:12px;padding:12px 16px;color:var(--muted);">100%</td>
+    <td style="font-family:var(--mono);font-size:12px;padding:12px 16px;color:var(--muted);">${t>0?(filteredTotal/t*100).toFixed(1):'0.0'}%</td>
   </tr>`;
 }
 
@@ -470,53 +534,45 @@ function filterAcct(a,btn){
 }
 
 // ─── ALLOCATION (active only) ───
-const TARGETS=[
-  {cat:'index',label:'S&P 500 + Index',sub:'SPYG·VOO·ZSP·XSP·VTI',target:30,color:'#1a50a0'},
-  {cat:'tech',label:'Tech individual',sub:'AAPL·META·MSFT·GOOG…',target:18,color:'#1a6b3a'},
-  {cat:'crypto',label:'Crypto',sub:'BTC·ETH·COIN·alts',target:8,color:'#b53a2f'},
-  {cat:'intl',label:'Internacional',sub:'VEA·VGK',target:10,color:'#5a3fa0'},
-  {cat:'defense',label:'Defensa / valor',sub:'BRK.B',target:4,color:'#8a5f0a'},
-  {cat:'hedge',label:'Hedge — GLD',sub:'GLD · oro',target:12,color:'#854f0b'},
-  {cat:'bio',label:'Biotecnología',sub:'ILMN·GRAL',target:2,color:'#0d7a5a'},
-  {cat:'metals',label:'Metales',sub:'ICOP·GLD-Bitso',target:3,color:'#c45c0a'},
-  {cat:'cash',label:'Efectivo / Cash',sub:'CASH-MX·CASH-CA',target:5,color:'#6a7080'},
-];
 function renderAllocation(){
   const ap=activePos(), t=totalActive();
+  const cb=classBreakdown(), ceil=cryptoCeiling();
+  document.getElementById('allocCards').innerHTML=ASSET_CLASSES.map(c=>{
+    const a=cb.pct(c.key), lim=c.key==='crypto'?ceil:c.target+REBAL_BAND;
+    const cls=a>lim?'down':(a<c.target-REBAL_BAND||a>c.target+REBAL_BAND)?'':'up';
+    return `<div class="card"><div class="card-lbl">${c.label}</div><div class="card-val ${cls}">${a.toFixed(1)}%</div><div class="card-sub">meta ${c.target}%${c.key==='crypto'?' · techo '+ceil+'%':''}</div></div>`;
+  }).join('');
+  const bar=(label,sub,a,usd,color,target,extra)=>{
+    const diff=target==null?null:a-target;
+    const col=diff==null?'var(--text)':diff>REBAL_BAND?'var(--red)':diff<-REBAL_BAND?'var(--blue)':'var(--text)';
+    return `<div class="ar">
+      <div class="al">${label}<span class="as">${sub}</span></div>
+      <div class="bt"><div class="bf" style="width:${Math.min(a,100)}%;background:${color};opacity:.8;"></div>${target!=null?`<div class="btg" style="left:${target}%;"></div>`:''}${extra||''}</div>
+      <div class="ap" style="color:${col}">${a.toFixed(1)}%</div>
+      <div class="au">${fmt(usd)}</div>
+      <div class="ad ${diff==null?'':diff>REBAL_BAND?'pd':'pn'}">${diff==null?'':(diff>0?'+':'')+diff.toFixed(1)+'%'}</div>
+    </div>`;
+  };
   const byCat={};
   ap.forEach(p=>{byCat[p.cat]=(byCat[p.cat]||0)+p.valueUSD;});
-  const cp=(byCat.crypto||0)/t*100, ip=(byCat.index||0)/t*100, hp=(byCat.hedge||0)/t*100;
-  document.getElementById('allocCards').innerHTML=`
-    <div class="card"><div class="card-lbl">Crypto</div><div class="card-val ${cp>10?'down':''}">${cp.toFixed(1)}%</div><div class="card-sub">target ≤ 8%</div></div>
-    <div class="card"><div class="card-lbl">S&P 500 / Index</div><div class="card-val">${ip.toFixed(1)}%</div><div class="card-sub">target 30–40%</div></div>
-    <div class="card"><div class="card-lbl">GLD / Hedge</div><div class="card-val ${hp<5?'down':''}">${hp.toFixed(1)}%</div><div class="card-sub">target 10–15%</div></div>`;
-  document.getElementById('allocBars').innerHTML=TARGETS.map(tg=>{
-    const actual=(byCat[tg.cat]||0)/t*100, diff=actual-tg.target;
-    if(tg.target===0&&actual<0.5)return '';
-    return `<div class="ar">
-      <div class="al">${tg.label}<span class="as">${tg.sub}</span></div>
-      <div class="bt"><div class="bf" style="width:${Math.min(actual,100)}%;background:${tg.color};opacity:.8;"></div>${tg.target>0?`<div class="btg" style="left:${tg.target}%;"></div>`:''}</div>
-      <div class="ap" style="color:${diff>5?'var(--red)':diff<-5?'var(--blue)':'var(--text)'}">${actual.toFixed(1)}%</div>
-      <div class="au">${fmt(byCat[tg.cat]||0)}</div>
-      ${tg.target>0?`<div class="ad ${diff>5?'pd':diff<-5?'pu':'pn'}">${diff>0?'+':''}${diff.toFixed(1)}%</div>`:'<div class="ad"></div>'}
-    </div>`;
-  }).join('');
-  const alerts=[];
-  if(cp>10)alerts.push({t:'warn',m:`Crypto en ${cp.toFixed(1)}% del portafolio activo.`});
-  if(hp<3)alerts.push({t:'warn',m:`GLD en ${hp.toFixed(1)}%. Sin este activo no tienes cobertura real ante caídas.`});
-  document.getElementById('allocAlerts').innerHTML=alerts.map(a=>`<div class="${a.t}">${a.m}</div>`).join('');
+  document.getElementById('allocBars').innerHTML=
+    ASSET_CLASSES.map(c=>bar(c.label,c.note,cb.pct(c.key),cb.by[c.key],c.color,c.target,
+      c.key==='crypto'?`<div class="btg" style="left:${ceil}%;background:var(--red);" title="Techo ${ceil}%"></div>`:'')).join('')+
+    `<div class="slbl" style="margin:18px 0 10px;">Detalle por categoría — informativo, sin meta</div>`+
+    Object.entries(byCat).sort((a,b)=>b[1]-a[1]).map(([k,v])=>bar(catLabel(k),'',v/t*100,v,'#9a9a90',null)).join('');
+  document.getElementById('allocAlerts').innerHTML=strategyAlerts().map(a=>`<div class="${a.type}">${a.msg}</div>`).join('');
   const tks={};
   ap.filter(p=>!['CRYPTO','BITSO'].includes(p.acct)).forEach(p=>{if(!tks[p.ticker])tks[p.ticker]={};tks[p.ticker][p.acct]=(tks[p.ticker][p.acct]||0)+p.valueUSD;});
   const overlaps=Object.entries(tks).filter(([,v])=>Object.keys(v).length>1);
   document.getElementById('overlapTbl').innerHTML=overlaps.map(([tk,v])=>{
     const tot=Object.values(v).reduce((s,x)=>s+x,0);
-    const action=tk==='COIN'?'Reducir en MX primero':tk==='AMZN'||tk==='META'?'No agregar más en MX':'Revisar';
+    const action='Mismo activo en varias cuentas: concentra compras nuevas en una sola';
     return `<tr><td><span class="tk">${tk}</span></td><td class="mono">${v.MX?fmt(v.MX):'—'}</td><td class="mono">${v.CA?fmt(v.CA):'—'}</td><td class="mono">—</td><td class="mono">${fmt(tot)}</td><td style="font-size:11px;color:var(--amber);">${action}</td></tr>`;
   }).join('');
 }
 
 // ─── CORRELATION (active only) ───
-const CAT_CORR={index:0.98,tech:0.87,crypto:0.52,intl:0.82,defense:0.68,hedge:0.05,bio:0.55,metals:0.15,cash:0.01};
+const CAT_CORR={index:0.98,tech:0.87,crypto:0.52,intl:0.82,defense:0.68,hedge:0.05,bio:0.55,cash:0.01};
 function calcCorr(){
   const ap=activePos(), t=totalActive();
   const byCat={};
@@ -533,7 +589,7 @@ function renderCorrelation(){
   const cc=wc>=0.80?'var(--red)':wc>=0.65?'var(--amber)':'var(--green)';
   document.getElementById('corrCards').innerHTML=`
     <div class="card"><div class="card-lbl">Correlación interna</div><div class="card-val" style="color:${cc}">${wc.toFixed(2)}</div><div class="card-sub">${wc>=0.80?'Muy alta':wc>=0.65?'Alta':'Moderada'} · meta &lt; 0.65</div></div>
-    <div class="card"><div class="card-lbl">Hedge real (&lt;0.3)</div><div class="card-val" style="color:${hp>=10?'var(--green)':hp>=5?'var(--amber)':'var(--red)'}">${hp.toFixed(1)}%</div><div class="card-sub">GLD + metales · target 12%</div></div>
+    <div class="card"><div class="card-lbl">Oro (corr &lt;0.3)</div><div class="card-val" style="color:${hp>=5-REBAL_BAND?'var(--green)':'var(--red)'}">${hp.toFixed(1)}%</div><div class="card-sub">GLD · meta 5%</div></div>
     <div class="card"><div class="card-lbl">Crypto</div><div class="card-val" style="color:${cp<=8?'var(--green)':cp<=12?'var(--amber)':'var(--red)'}">${cp.toFixed(1)}%</div><div class="card-sub">Corr 0.52→0.75 en crisis</div></div>`;
   const cur=[
     Math.round(10+(1-(byCat.tech||0)/t)*40),
@@ -558,7 +614,7 @@ function renderCorrelation(){
     {l:'Internacional',c:0.82,col:'#5a3fa0',w:(byCat.intl||0)/t*100},
     {l:'Defensa',c:0.68,col:'#8a5f0a',w:(byCat.defense||0)/t*100},
     {l:'Crypto',c:0.52,col:'#b53a2f',w:(byCat.crypto||0)/t*100},
-    {l:'Metales (ICOP/GLD)',c:0.15,col:'#c45c0a',w:((byCat.metals||0)+(byCat.hedge||0))/t*100},
+    {l:'Oro (GLD)',c:0.05,col:'#854f0b',w:(byCat.hedge||0)/t*100},
   ];
   document.getElementById('corrDetail').innerHTML=risks.map(r=>`
     <div class="ar">
@@ -566,9 +622,9 @@ function renderCorrelation(){
       <div class="bt"><div class="bf" style="width:${r.c*100}%;background:${r.col};opacity:.6;"></div></div>
       <div class="ap">${r.c.toFixed(2)}</div>
     </div>`).join('');
-  const gldNow=((byCat.hedge||0)+(byCat.metals||0))/t*100;
-  const progL=['Ahora',...[4,8,12,16,20].map(g=>'GLD '+g+'%')];
-  const progD=[wc,...[4,8,12,16,20].map(g=>Math.max(0.35,wc-(g-gldNow)*0.009))];
+  const gldNow=(byCat.hedge||0)/t*100;
+  const progL=['Ahora',...[2,4,5,8,10].map(g=>'GLD '+g+'%')];
+  const progD=[wc,...[2,4,5,8,10].map(g=>Math.max(0.35,wc-(g-gldNow)*0.009))];
   if(corrProgressChart)corrProgressChart.destroy();
   corrProgressChart=new Chart(document.getElementById('corrProgress'),{type:'line',data:{
     labels:progL,
@@ -580,11 +636,9 @@ function renderCorrelation(){
 
 // ─── RECOMMENDATIONS (AI-powered) ───
 function renderRecs(){
-  const t=totalActive(); const byCat={};
-  activePos().forEach(p=>{byCat[p.cat]=(byCat[p.cat]||0)+p.valueUSD;});
-  const wc=calcCorr(), hp=(byCat.hedge||0)/t*100, cp=(byCat.crypto||0)/t*100;
+  const cb=classBreakdown();
   document.getElementById('recsContext').textContent=
-    `Portafolio activo: ${fmt(t)} · correlacion ${wc.toFixed(2)} · GLD ${hp.toFixed(1)}% · crypto ${cp.toFixed(1)}%`;
+    `Portafolio activo: ${fmt(cb.t)} · `+ASSET_CLASSES.map(c=>`${c.label} ${cb.pct(c.key).toFixed(1)}%`).join(' · ');
 }
 
 async function callProxy(messages, useSearch){
@@ -617,15 +671,9 @@ async function generateRecs(){
   loading.style.display='block'; output.style.display='none'; empty.style.display='none';
   bar.style.width='10%'; loadTxt.textContent='Consultando mercado actual...';
 
-  const ap=activePos(), t=totalActive();
-  const byCat={};
-  ap.forEach(p=>{byCat[p.cat]=(byCat[p.cat]||0)+p.valueUSD;});
+  const ap=activePos();
   const wc=calcCorr();
-  const topPos=[...ap].sort((a,b)=>b.valueUSD-a.valueUSD).slice(0,18).map(p=>{
-    const pnl=p.costTotalUSD>0?((p.valueUSD-p.costTotalUSD)/p.costTotalUSD)*100:0;
-    return `${p.ticker}(${p.acct}) ${fmt(p.valueUSD)} ${(p.valueUSD/t*100).toFixed(1)}% PL${pnl>=0?'+':''}${pnl.toFixed(1)}%`;
-  }).join(' | ');
-  const catBk=Object.entries(byCat).map(([k,v])=>`${k}:${(v/t*100).toFixed(1)}%`).join(' ');
+  const cb=classBreakdown(), ceil=cryptoCeiling();
 
   try{
     const DEFAULT_CTX = 'S&P500 P/E ~26 niveles elevados. Fed tasas 3.5-3.75% un recorte proyectado 2026. Oro $4490/oz cerca maximos. BTC recupero $70k crypto constructivo.';
@@ -633,25 +681,29 @@ async function generateRecs(){
 
     bar.style.width='40%'; loadTxt.textContent='Analizando portafolio...';
 
-    const topPos5=[...ap].sort((a,b)=>b.valueUSD-a.valueUSD).slice(0,8).map(p=>{
+    const topPos=[...ap].sort((a,b)=>b.valueUSD-a.valueUSD).slice(0,15).map(p=>{
       const pnl=p.costTotalUSD>0?((p.valueUSD-p.costTotalUSD)/p.costTotalUSD)*100:0;
-      return `${p.ticker}(${p.acct}) ${fmt(p.valueUSD)} PL${pnl>=0?'+':''}${pnl.toFixed(0)}%`;
+      return `${p.ticker}(${p.acct},${assetClass(p)}) ${fmt(p.valueUSD)} PL${pnl>=0?'+':''}${pnl.toFixed(0)}%`;
     }).join(' | ');
-
-    const hedgePct=((byCat.hedge||0)/t*100).toFixed(1);
-    const intlPct=((byCat.intl||0)/t*100).toFixed(1);
-    const cashPct=((byCat.cash||0)/t*100).toFixed(1);
+    const actual=ASSET_CLASSES.map(c=>`${c.label} ${cb.pct(c.key).toFixed(1)}% (meta ${c.target}%)`).join(' | ');
+    const plan=dcaPlan().map(c=>`${c.label} $${c.amt}`).join(', ')||'sin huecos';
 
     bar.style.width='65%'; loadTxt.textContent='Generando recomendaciones...';
 
-    const s2=await callProxy([{role:'user',content:`Asesor de inversiones. Portafolio activo: ${topPos5} | Categorias: ${catBk} | Correlacion interna: ${wc.toFixed(2)} (meta<0.65) | GLD/hedge actual: ${hedgePct}% (meta 12%) | Internacional: ${intlPct}% (meta 10%) | Cash: ${cashPct}% (meta 5%, MXN rinde 6.5% fijo) | DCA disponible $300/sem cuenta MX | Horizonte 15yr | Mercado: ${MARKET_CTX}
+    const s2=await callProxy([{role:'user',content:`Asesor de inversiones. Respeta la estrategia del inversionista; no la cambies.
 
-IMPORTANTE: hedge en ${hedgePct}% - si es menor a 10% GLD DEBE estar en buy con prioridad urgente. DCA debe alinearse con los gaps reales del portafolio. Si cash supera 8%, sugiere desplegarlo hacia los gaps; si es menor a 3%, sugiere reforzarlo.
+ESTRATEGIA: horizonte 15 anos. Metas: Acciones EE.UU. 42%, Internacional 18%, Cripto 25%, Oro 5%, Renta fija/cash 10%. Cripto se reduce gradualmente: techo ${ceil}% este ano bajando hasta 25%. Reglas: (1) cero dinero nuevo a cripto hasta llegar a 25%; (2) solo se vende cripto si rebasa el techo, vendiendo BTC con ganancia; (3) altcoins fuera de la tesis, no agregar; (4) DCA $${DCA_WEEKLY}/sem a las clases con hueco; banda de rebalanceo +-${REBAL_BAND} pts. Cash MXN rinde 6.5% fijo.
+
+ACTUAL: ${actual}
+Plan DCA calculado: ${plan}
+Top posiciones: ${topPos}
+Correlacion interna estimada: ${wc.toFixed(2)}
+Mercado: ${MARKET_CTX}
+
+Tarea: "buy" = 4 tickers concretos para ejecutar el plan DCA (nunca cripto); dca_weekly debe sumar ${DCA_WEEKLY}. "reduce" = hasta 3 posiciones que no encajan con la estrategia o son redundantes, explicando si conviene vender ya o solo dejar de comprar.
 
 Responde SOLO con JSON sin texto extra ni markdown:
-{"market_context":"resumen breve","buy":[{"ticker":"GLD","name":"SPDR Gold Shares","action":"Comprar urgente","rationale":"especifico al portafolio","corr_sp500":0.05,"dca_weekly":150,"account":"MX"}],"reduce":[{"ticker":"ARB","reason":"especifico"}]}
-
-4 recomendaciones buy y 3 reduce reales. Solo JSON.`}], false);
+{"market_context":"resumen breve","buy":[{"ticker":"VXUS","name":"nombre","action":"Comprar","rationale":"especifico al portafolio y la estrategia","corr_sp500":0.8,"dca_weekly":150,"account":"MX"}],"reduce":[{"ticker":"XXX","reason":"especifico"}]}`}], false);
 
     bar.style.width='90%'; loadTxt.textContent='Procesando...';
 
@@ -703,7 +755,7 @@ Responde SOLO con JSON sin texto extra ni markdown:
         <div style="font-size:12px;color:var(--muted);line-height:1.6;">${r.reason||''}</div>
       </div>`).join('');
 
-    document.getElementById('recsMarketContext').textContent=parsed.market_context||marketCtx;
+    document.getElementById('recsMarketContext').textContent=parsed.market_context||MARKET_CTX;
     document.getElementById('recsTimestamp').textContent='Generado el '+new Date().toLocaleString('es-MX',{dateStyle:'medium',timeStyle:'short'})+' · contexto de mercado en tiempo real';
     loading.style.display='none'; output.style.display='block';
 
@@ -717,52 +769,71 @@ Responde SOLO con JSON sin texto extra ni markdown:
 
 
 // ─── DCA ───
-let weekNum=parseInt(localStorage.getItem('plv2_week')||'1');
-const PHASES=[
-  {n:1,w:'1–8',label:'Base anti-correlación',color:'#1a50a0',
-   desc:'$300 completos a GLD. Ya tienes GLD en Bitso — considera incrementarlo ahí también. GLD tiene correlación 0.05 con el S&P, es el mayor impacto por dólar.',
-   split:[{t:'GLD',a:300,r:'Hedge · corr 0.05',ct:'MX o Bitso'}]},
-  {n:2,w:'9–20',label:'Diversificación geográfica',color:'#5a3fa0',
-   desc:'GLD llega al 5–7%. Ahora suma VEA. La combinación baja correlación de ~0.82 a ~0.73.',
-   split:[{t:'GLD',a:150,r:'Continuar hasta 12%',ct:'MX'},{t:'VEA',a:100,r:'Internacional',ct:'MX'},{t:'VTI',a:50,r:'Core',ct:'MX'}]},
-  {n:3,w:'21–40',label:'Upside selectivo',color:'#1a6b3a',
-   desc:'GLD en ~10%. Introduce NVDA/TSM como upside diferenciado. No agregues META ni AMZN en MX — ya los tienes en CA.',
-   split:[{t:'GLD',a:100,r:'Hasta 12%',ct:'MX'},{t:'VEA',a:60,r:'Internacional',ct:'MX'},{t:'NVDA',a:80,r:'Upside IA',ct:'MX'},{t:'GOOG',a:60,r:'Tech menor corr interna',ct:'MX'}]},
-  {n:4,w:'40+',label:'Modo crucero',color:'#0d7a5a',
-   desc:'GLD en 12–15%. Split permanente. En RRSPs migra gradualmente a VEQT. Revisa crypto cada 6 meses.',
-   split:[{t:'GLD',a:75,r:'Mantener ratio',ct:'MX'},{t:'VTI',a:75,r:'Core',ct:'MX'},{t:'VEA',a:60,r:'Internacional',ct:'MX'},{t:'NVDA/TSM',a:50,r:'Upside',ct:'MX'},{t:'VEQT',a:null,r:'Migrar RRSPs gradual',ct:'RRSP CA'}]},
-];
-function getPhase(){if(weekNum<=8)return 0;if(weekNum<=20)return 1;if(weekNum<=40)return 2;return 3;}
 function renderDCA(){
-  const ph=getPhase();
+  const cb=classBreakdown(), plan=dcaPlan(), yrs=yearsToCryptoTarget();
   document.getElementById('dcaCards').innerHTML=`
-    <div class="card"><div class="card-lbl">Aportación semanal</div><div class="card-val up">$300</div><div class="card-sub">USD · MX</div></div>
-    <div class="card"><div class="card-lbl">Aportación anual</div><div class="card-val">$15,600</div><div class="card-sub">52 sem × $300</div></div>
-    <div class="card"><div class="card-lbl">Fase actual</div><div class="card-val">${ph+1}</div><div class="card-sub">Semanas ${PHASES[ph].w}</div></div>
-    <div class="card"><div class="card-lbl">Semana</div><div class="card-val">${weekNum}</div><div class="card-sub"><button class="btn btn-sm" onclick="advWeek()">+ Semana</button></div></div>`;
-  document.getElementById('dcaPhases').innerHTML=PHASES.map((p,i)=>`
-    <div style="background:var(--surface);border:1px solid ${i===ph?p.color:'var(--border)'};border-radius:10px;padding:15px 17px;">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
-        <span style="font-family:var(--mono);font-size:9px;text-transform:uppercase;letter-spacing:.08em;padding:3px 8px;border-radius:4px;background:${p.color}20;color:${p.color};">Fase ${p.n} · Sem ${p.w}</span>
-        ${i===ph?`<span style="font-size:9px;font-family:var(--mono);color:${p.color};text-transform:uppercase;">Activa</span>`:''}
-      </div>
-      <div style="font-size:13px;font-weight:600;margin-bottom:5px;">${p.label}</div>
-      <div style="font-size:12px;color:var(--muted);line-height:1.6;margin-bottom:10px;">${p.desc}</div>
-      <div style="border-top:1px solid var(--border);padding-top:10px;">
-        ${p.split.map(s=>`<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border);font-size:12px;">
-          <span style="font-family:var(--mono);font-weight:500;">${s.t}</span>
-          <span style="font-family:var(--mono);color:var(--green);">${s.a?'$'+s.a+'/sem':'Migrar gradual'}</span>
-        </div>`).join('')}
-      </div>
-    </div>`).join('');
-  document.getElementById('weeklyTbl').innerHTML=PHASES[ph].split.map(s=>`<tr>
-    <td><span class="tk">${s.t}</span></td>
-    <td><span class="mono up">${s.a?'$'+s.a:'Gradual'}</span></td>
-    <td style="font-size:12px;color:var(--muted);">${s.r}</td>
-    <td><span class="abadge ${acctClass(s.ct||'MX')}">${s.ct||'MX'}</span></td>
-  </tr>`).join('');
+    <div class="card"><div class="card-lbl">Aportación semanal</div><div class="card-val up">${fmt(DCA_WEEKLY)}</div><div class="card-sub">USD · nunca a cripto</div></div>
+    <div class="card"><div class="card-lbl">Aportación anual</div><div class="card-val">${fmt(DCA_WEEKLY*52)}</div><div class="card-sub">52 semanas</div></div>
+    <div class="card"><div class="card-lbl">Cripto hoy</div><div class="card-val">${cb.pct('crypto').toFixed(1)}%</div><div class="card-sub">techo ${cryptoCeiling()}% · meta 25%</div></div>
+    <div class="card"><div class="card-lbl">Años a cripto 25%</div><div class="card-val">${yrs>0?yrs.toFixed(1):'—'}</div><div class="card-sub">solo con aportaciones, cripto plano</div></div>`;
+  document.getElementById('dcaPhases').innerHTML=`<div class="info" style="grid-column:1/-1;margin:0;">El reparto se recalcula con tus posiciones actuales: el dinero va a las clases por debajo de su meta, en proporción al hueco en USD. Cripto no recibe aportaciones hasta llegar a 25%.</div>`;
+  document.getElementById('weeklyTbl').innerHTML=plan.length?plan.map(c=>`<tr>
+    <td><span class="tk">${c.buy}</span><br><span style="font-size:11px;color:var(--muted);">${c.label}</span></td>
+    <td><span class="mono up">${fmt(c.amt)}</span></td>
+    <td style="font-size:12px;color:var(--muted);">${cb.pct(c.key).toFixed(1)}% → meta ${c.target}% · faltan ${fmt(c.gap)}</td>
+    <td><span class="abadge ${acctClass('MX')}">MX</span></td>
+  </tr>`).join(''):`<tr><td colspan="4" style="color:var(--muted);font-size:12px;">Todas las clases están en su meta.</td></tr>`;
 }
-function advWeek(){weekNum++;localStorage.setItem('plv2_week',weekNum);renderDCA();}
+
+// ─── ESTRATEGIA (vista) ───
+const STRATEGY_RULES=[
+  ['Dinero nuevo',`Los ${fmt(DCA_WEEKLY)}/semana se reparten entre las clases por debajo de su meta (ver Plan DCA). Cripto no recibe aportaciones hasta llegar a 25%.`],
+  ['Techo de cripto','Si cripto rebasa el techo del año, se vende BTC con ganancia hasta volver al techo y se reinvierte en los huecos. Nunca se vende cripto en pérdida para rebalancear.'],
+  ['Altcoins','SOL, AAVE, LINK, ARB, UNI y HYPE quedan fuera de la tesis: no se agregan. Evaluar con el contador venderlas para aprovechar la pérdida fiscal.'],
+  ['ETH / stETH','Pendiente decidir si forman parte de la tesis de reserva de valor. Mientras tanto, no se agregan.'],
+  ['Bandas de rebalanceo',`Una clase está en meta si está a ±${REBAL_BAND} pts. Debajo de la banda, el DCA la prioriza; arriba, se deja de comprar.`],
+  ['Oro','5% como cobertura ante caídas e inflación, no como apuesta.'],
+  ['Renta fija / Cash','10% (máximo 15%). El cash MXN rinde 6.5% fijo. Si pasa de 15%, se despliega hacia los huecos.'],
+  ['Revisión','Revisar esta página cada trimestre o cuando cambie algo importante (ingresos, horizonte, objetivos).'],
+];
+function renderStrategy(){
+  const cb=classBreakdown(), ceil=cryptoCeiling(), yr=new Date().getFullYear();
+  const status=c=>{
+    const a=cb.pct(c.key);
+    if(c.key==='crypto') return a>ceil?['pd','Arriba del techo']:a>c.target+REBAL_BAND?['pn','En transición']:['pu','En meta'];
+    return a>c.target+REBAL_BAND?['pd','Arriba']:a<c.target-REBAL_BAND?['pn','Debajo']:['pu','En meta'];
+  };
+  const years=Object.keys(CRYPTO_CEILING).map(Number).sort();
+  document.getElementById('strategyDetail').innerHTML=`
+    <div class="info" style="margin-bottom:16px;">Estrategia vigente · adoptada el ${STRATEGY_DATE}. Construir patrimonio a 15 años con un núcleo de acciones globales, reduciendo gradualmente la concentración en cripto sin vender en pérdida. BTC se mantiene como reserva de valor de largo plazo.</div>
+    <div class="tbl-wrap">
+      <div class="tbl-bar"><span>Asignación objetivo</span><span>${fmt(cb.t)} activo</span></div>
+      <table>
+        <thead><tr><th>Clase de activo</th><th>Meta</th><th>Actual</th><th>Estado</th><th>Qué incluye</th></tr></thead>
+        <tbody>${ASSET_CLASSES.map(c=>{const [cls,txt]=status(c);return `<tr>
+          <td><span class="tk">${c.label}</span></td>
+          <td class="mono">${c.target}%${c.key==='crypto'?`<br><span style="font-size:11px;color:var(--muted);">techo ${ceil}%</span>`:''}</td>
+          <td class="mono">${cb.pct(c.key).toFixed(1)}%</td>
+          <td><span class="${cls}">${txt}</span></td>
+          <td style="font-size:12px;color:var(--muted);">${c.note}</td></tr>`;}).join('')}</tbody>
+      </table>
+    </div>
+    <div class="alloc-sec">
+      <div class="slbl" style="margin-bottom:12px;">Reglas</div>
+      ${STRATEGY_RULES.map(([t,d],i)=>`<div style="display:flex;gap:12px;padding:9px 0;border-bottom:1px solid var(--border);font-size:13px;line-height:1.6;">
+        <span style="font-family:var(--mono);color:var(--muted);min-width:18px;">${i+1}</span>
+        <div><strong>${t}.</strong> ${d}</div></div>`).join('')}
+    </div>
+    <div class="tbl-wrap">
+      <div class="tbl-bar"><span>Transición de cripto</span><span>~${yearsToCryptoTarget().toFixed(1)} años a 25% solo con aportaciones</span></div>
+      <table>
+        <thead><tr><th>Año</th><th>Techo de cripto</th></tr></thead>
+        <tbody>${years.map(y=>`<tr${y===yr?' style="background:var(--surface2);"':''}><td class="mono">${y}${y===yr?' · actual':''}</td><td class="mono">${CRYPTO_CEILING[y]}%</td></tr>`).join('')}
+          <tr><td class="mono">${years[years.length-1]+1}+</td><td class="mono">25%</td></tr></tbody>
+      </table>
+    </div>
+    <div style="font-size:11px;font-family:var(--mono);color:var(--muted);">Las metas y reglas viven en app.js (ASSET_CLASSES, CRYPTO_CEILING, STRATEGY_RULES), así que cada cambio queda registrado en git.</div>`;
+}
 
 // ─── RETIREMENT ───
 function renderRetirement(){
@@ -980,6 +1051,7 @@ function sv(view,btn){
   document.getElementById('view-'+view).classList.add('active');
   if(btn)btn.classList.add('active');
   if(view==='overview')renderOverview();
+  if(view==='strategy')renderStrategy();
   if(view==='positions')renderPositions();
   if(view==='allocation')renderAllocation();
   if(view==='correlation')renderCorrelation();
