@@ -41,25 +41,16 @@
   </div>
 </div>
 
-<nav class="nav">
-  <button class="nb active" onclick="sv('overview',this)">Resumen</button>
-  <button class="nb" onclick="sv('strategy',this)">Estrategia</button>
-  <button class="nb" onclick="sv('positions',this)">Posiciones</button>
-  <button class="nb" onclick="sv('allocation',this)">Asignación</button>
-  <button class="nb" onclick="sv('correlation',this)">Correlación</button>
-  <button class="nb" onclick="sv('recs',this)">Recomendaciones</button>
-  <button class="nb" onclick="sv('dca',this)">Plan DCA</button>
-  <button class="nb" onclick="sv('historial',this)">Historial</button>
-  <button class="nb" onclick="sv('retirement',this)">Retiro</button>
-  <button class="nb" onclick="sv('setup',this)">Configurar</button>
-</nav>
+<nav class="nav" id="navMain"></nav>
+<nav class="subnav" id="navSub"></nav>
 
 <div class="main">
 
 <!-- ===== OVERVIEW ===== -->
 <div class="view active" id="view-overview">
+  <div class="week" id="weekAction"></div>
   <div class="cards cards-5" id="overviewCards"></div>
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:18px;">
+  <div class="week">
     <div>
       <div class="slbl" style="margin-bottom:10px;">Portafolio activo por cuenta</div>
       <div id="acctBreakdown"></div>
@@ -76,7 +67,6 @@
     <div class="retiro-title">Cuentas de retiro — solo referencia, no incluidas en análisis activo</div>
     <div class="retiro-grid" id="retiroBanner"></div>
   </div>
-  <div id="alertsSection"></div>
 </div>
 
 <!-- ===== STRATEGY ===== -->
@@ -336,7 +326,7 @@
         <div class="st">Cargar todo</div>
         <div style="display:flex;gap:8px;margin-top:8px;">
           <button class="btn btn-p" onclick="fetchAll()">Cargar dashboard completo</button>
-          <button class="btn" onclick="sv('overview',document.querySelector('.nb'))">Ver resumen</button>
+          <button class="btn" onclick="sv('overview')">Ver resumen</button>
         </div>
       </div>
     </div>
