@@ -27,6 +27,7 @@
     <div class="hdr-badge">Portfolio Live v2 · Ricardo</div>
     <div class="hdr-total" id="hdrTotal">—</div>
     <div class="hdr-sub" id="hdrSub">Portafolio activo · cargando...</div>
+    <div class="hdr-sub" id="fxInfo" style="margin-top:2px;"></div>
   </div>
   <div class="hdr-right">
     <div class="pill"><div class="dot" id="statusDot"></div><span id="statusTxt">Sin conectar</span></div>
@@ -116,6 +117,10 @@
     <div id="allocBars"></div>
   </div>
   <div id="allocAlerts"></div>
+  <details class="alloc-sec" id="compareBox">
+    <summary class="slbl" style="cursor:pointer;">Antes vs después — look-through de mezclas y tipo de cambio en vivo</summary>
+    <div id="compareBody" style="margin-top:14px;"></div>
+  </details>
   <div class="tbl-wrap">
     <div class="tbl-bar"><span>Solapamiento entre cuentas activas</span></div>
     <table><thead><tr><th>Ticker</th><th>MX</th><th>CA</th><th>CRYPTO/BITSO</th><th>Total USD</th><th>Acción</th></tr></thead>
@@ -126,7 +131,7 @@
 <!-- ===== CORRELATION ===== -->
 <div class="view" id="view-correlation">
   <div class="info" style="margin-bottom:16px;">Correlación calculada sobre portafolio activo únicamente. Las cuentas de retiro no se incluyen.</div>
-  <div class="cards cards-3" id="corrCards"></div>
+  <div class="cards" id="corrCards"></div>
   <div class="chart-card">
     <div class="chart-lbl">Protección ante choques — actual vs portafolio objetivo</div>
     <div class="cw"><canvas id="radarChart"></canvas></div>
@@ -282,11 +287,11 @@
             <input class="url-input" id="val-agf-cost" type="number" placeholder="24700" style="width:100%;padding:7px 10px;">
           </div>
           <div>
-            <div style="font-size:11px;color:var(--muted);font-family:var(--mono);margin-bottom:4px;">USD/CAD</div>
+            <div style="font-size:11px;color:var(--muted);font-family:var(--mono);margin-bottom:4px;">TC histórico para costos — CAD por 1 USD</div>
             <input class="url-input" id="val-cadrate" type="number" placeholder="1.3719" step="0.0001" style="width:100%;padding:7px 10px;">
           </div>
           <div>
-            <div style="font-size:11px;color:var(--muted);font-family:var(--mono);margin-bottom:4px;">MXN/USD</div>
+            <div style="font-size:11px;color:var(--muted);font-family:var(--mono);margin-bottom:4px;">TC histórico para costos — USD por 1 MXN</div>
             <input class="url-input" id="val-mxnrate" type="number" placeholder="0.0488" step="0.0001" style="width:100%;padding:7px 10px;">
           </div>
         </div>
@@ -313,6 +318,29 @@
     </div>
     <div class="step">
       <div class="sn">4</div>
+      <div style="flex:1;min-width:0;">
+        <div class="st">Tipos de cambio</div>
+        <div class="sd" style="margin-bottom:10px;">El valor de lo que está en CAD y MXN usa el tipo de cambio del día; el costo usa el tipo de cambio histórico del paso 3, para que el P/L no brinque solo por la moneda. Fuente: tu hoja (filas <code>CADUSD</code> y <code>MXNUSD</code> con GOOGLEFINANCE) y, si no vienen, Frankfurter (BCE). Si ambas fallan, se usa el último valor bueno.</div>
+        <label style="display:flex;gap:8px;align-items:center;font-size:13px;cursor:pointer;"><input type="checkbox" id="fxFixed" onchange="toggleFxFixed(this.checked)"> Usar tipos de cambio fijos (los del paso 3) también para el valor</label>
+        <div id="fxStatus" style="font-size:11px;font-family:var(--mono);margin-top:8px;color:var(--muted);"></div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="sn">5</div>
+      <div style="flex:1;min-width:0;">
+        <div class="st">Mezclas por clase (look-through)</div>
+        <div class="sd" style="margin-bottom:10px;">Reparte una posición entre las clases de tu estrategia según lo que trae por dentro. Debe sumar 100% (±1 pt por redondeo; se normaliza). Actualiza porcentajes y fecha cada trimestre con el perfil oficial del fondo.</div>
+        <div id="mixEditor"></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">
+          <button class="btn" onclick="mixAdd()">+ Mezcla</button>
+          <button class="btn btn-p" onclick="saveMixes()">Guardar mezclas</button>
+          <button class="btn" onclick="resetMixes()">Restaurar mezcla oficial de AGF</button>
+        </div>
+        <div id="st-mix" style="font-size:11px;font-family:var(--mono);margin-top:6px;color:var(--muted);"></div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="sn">6</div>
       <div>
         <div class="st">Contexto de mercado — para recomendaciones IA</div>
         <div class="sd" style="margin-bottom:10px;">Actualiza esto cada semana o dos con el estado actual del mercado. Se usa como contexto para generar recomendaciones.</div>
@@ -322,7 +350,7 @@
       </div>
     </div>
     <div class="step">
-      <div class="sn">5</div>
+      <div class="sn">7</div>
       <div>
         <div class="st">Cargar todo</div>
         <div style="display:flex;gap:8px;margin-top:8px;">
