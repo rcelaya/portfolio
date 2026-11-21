@@ -201,6 +201,7 @@ const catLabel = c=>({index:'Index',tech:'Tech',crypto:'Cripto',intl:'Internacio
 // ─── ESTRATEGIA (opción A) ───
 // Fuente única de metas y reglas: la usan Estrategia, Asignación, Plan DCA y el prompt de IA.
 const STRATEGY_DATE='13 nov 2026';
+const STRATEGY_THESIS='Construir patrimonio a 15 años con un núcleo de acciones globales, reduciendo gradualmente la concentración en cripto sin vender en pérdida. BTC se mantiene como reserva de valor de largo plazo.';
 const ASSET_CLASSES=[
   {key:'us',    label:'Acciones EE.UU.',          target:42, color:'#1a50a0', note:'Índices + acciones individuales de EE.UU.'},
   {key:'intl',  label:'Acciones internacionales', target:18, color:'#5a3fa0', note:'Desarrollados y emergentes fuera de EE.UU.'},
@@ -326,12 +327,13 @@ async function fetchAll(){
         const idx=positions.findIndex(p=>p.ticker===lp.ticker&&p.acct===lp.cuenta);
         if(idx>=0){
           positions[idx].priceUSD   = lp.precio;
+          positions[idx].live       = true;
           positions[idx].units      = units;
           positions[idx].costTotalUSD = units * cost;
           positions[idx].valueUSD   = units * lp.precio;
           positions[idx].cat        = cat;
         } else {
-          positions.push({ticker:lp.ticker,name:lp.nombre||lp.ticker,units,costUSD:cost,priceUSD:lp.precio,cat,acct:lp.cuenta||'MX',valueUSD:units*lp.precio,costTotalUSD:units*cost});
+          positions.push({ticker:lp.ticker,name:lp.nombre||lp.ticker,units,costUSD:cost,priceUSD:lp.precio,cat,acct:lp.cuenta||'MX',valueUSD:units*lp.precio,costTotalUSD:units*cost,live:true});
         }
       });
     }
@@ -354,6 +356,7 @@ async function fetchAll(){
           const idx=positions.findIndex(p=>p.ticker===dashTicker&&p.acct===lp.cuenta);
           if(idx>=0){
             positions[idx].priceUSD    = lp.precio;
+            positions[idx].live        = true;
             positions[idx].units       = units;
             positions[idx].costTotalUSD = units * cost;
             positions[idx].valueUSD    = units * lp.precio;
@@ -837,7 +840,7 @@ function renderStrategy(){
   const cb=classBreakdown(), ceil=cryptoCeiling(), yr=new Date().getFullYear();
   const years=Object.keys(CRYPTO_CEILING).map(Number).sort();
   document.getElementById('strategyDetail').innerHTML=`
-    <div class="info" style="margin-bottom:16px;">Estrategia vigente · adoptada el ${STRATEGY_DATE}. Construir patrimonio a 15 años con un núcleo de acciones globales, reduciendo gradualmente la concentración en cripto sin vender en pérdida. BTC se mantiene como reserva de valor de largo plazo.</div>
+    <div class="info" style="margin-bottom:16px;">Estrategia vigente · adoptada el ${STRATEGY_DATE}. ${STRATEGY_THESIS}</div>
     ${STATUS_LEGEND}
     <div class="tbl-wrap">
       <div class="tbl-bar"><span>Asignación objetivo</span><span>${fmt(cb.t)} activo</span></div>
@@ -987,6 +990,154 @@ function exportCSV(){
   const a=document.createElement('a');
   a.href=url;
   a.download='portfolio_'+new Date().toISOString().slice(0,10)+'.csv';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+// ─── EXPORT MARKDOWN (para pasar a otros agentes) ───
+// Sin datos sensibles: no incluye nombre, correo, URLs de las hojas, tokens ni el endpoint del proxy.
+const MANUAL_TICKERS=['RRSP-SC','RRSP-WS','AFORE','AGF-CA','CASH-MX','CASH-CA'];
+const priceSource=p=>MANUAL_TICKERS.includes(p.ticker)?'manual':p.live?'en vivo':'estático';
+function buildPortfolioMarkdown(){
+  const ap=activePos(), rp=retiroPos(), cb=classBreakdown(), t=cb.t, ceil=cryptoCeiling();
+  const esc=v=>String(v??'').replace(/\|/g,'\\|').replace(/\n/g,' ');
+  const usd=n=>(n<0?'-':'')+'$'+Math.abs(n||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+  const px=n=>n<1?'$'+n.toFixed(4):usd(n);
+  const pct=n=>(n||0).toFixed(2)+'%';
+  const plPct=p=>p.costTotalUSD>0?(p.valueUSD-p.costTotalUSD)/p.costTotalUSD*100:0;
+  const table=(head,rows)=>['| '+head.join(' | ')+' |','|'+head.map(()=>' --- ').join('|')+'|',
+    ...rows.map(r=>'| '+r.map(esc).join(' | ')+' |')].join('\n');
+  let manual={}; try{manual=JSON.parse(localStorage.getItem('plv2_manual')||'{}');}catch(e){}
+  let hist=[]; try{hist=JSON.parse(localStorage.getItem('plv2_hist')||'[]');}catch(e){}
+  const totalCost=ap.reduce((s,p)=>s+p.costTotalUSD,0), pnl=t-totalCost;
+  const byAcct={}, byCat={}, byTicker={};
+  ap.forEach(p=>{
+    const a=byAcct[p.acct]||(byAcct[p.acct]={v:0,c:0}); a.v+=p.valueUSD; a.c+=p.costTotalUSD;
+    byCat[p.cat]=(byCat[p.cat]||0)+p.valueUSD;
+    const g=byTicker[p.ticker]||(byTicker[p.ticker]={ticker:p.ticker,accts:[],units:0,costTotalUSD:0,valueUSD:0,priceUSD:p.priceUSD});
+    g.accts.push(p.acct); g.units+=p.units; g.costTotalUSD+=p.costTotalUSD; g.valueUSD+=p.valueUSD;
+  });
+  const status=document.getElementById('statusTxt')?.textContent||'';
+  const upd=document.getElementById('lastUpd')?.textContent||'';
+  const out=[];
+  out.push(`# Portafolio de inversión — resumen para análisis`,
+    ``,
+    `- Generado: ${new Date().toLocaleString('es-MX',{dateStyle:'long',timeStyle:'short'})}`,
+    `- Moneda base: USD · Tipos de cambio usados: 1 USD = ${manual.cad||1.3719} CAD · 1 MXN = ${manual.mxn||0.0488} USD`,
+    `- Estado de los datos: ${status}${upd?' · '+upd:''}`,
+    ``,
+    `> Para el agente: este archivo describe el portafolio y la estrategia de un inversionista individual. El "portafolio activo" excluye las cuentas de retiro, que se listan aparte. Respeta la estrategia y sus reglas; si propones cambiarlas, dilo explícitamente y explica por qué. Revisa la sección "Limitaciones de los datos" antes de sacar conclusiones.`,
+    ``,
+    `## 1. Resumen`,
+    ``,
+    table(['Métrica','Valor'],[
+      ['Portafolio activo',usd(t)],
+      ['Costo base activo',usd(totalCost)],
+      ['P/L activo',`${usd(pnl)} (${pct(totalCost>0?pnl/totalCost*100:0)})`],
+      ['Cuentas de retiro (aparte)',usd(totalRetiro())],
+      ['Total consolidado',usd(t+totalRetiro())],
+      ['Posiciones activas',String(ap.length)],
+      ['Correlación interna estimada',`${calcCorr().toFixed(2)} (meta < 0.65)`],
+    ]),
+    ``,
+    `## 2. Estrategia vigente`,
+    ``,
+    `Adoptada el ${STRATEGY_DATE}. ${STRATEGY_THESIS}`,
+    ``,
+    `### Asignación objetivo por clase de activo`,
+    ``,
+    table(['Clase','Meta','Actual','Diferencia','Valor USD','Estado','Qué incluye'],
+      ASSET_CLASSES.map(c=>{const st=targetStatus(c.key);return [c.label,c.target+'%'+(c.key==='crypto'?` (techo ${ceil}% este año)`:''),pct(st.a),(st.a-c.target>=0?'+':'')+(st.a-c.target).toFixed(2)+' pts',usd(cb.by[c.key]),st.label,c.note];})),
+    ``,
+    `Banda de rebalanceo: ±${REBAL_BAND} pts. Aportación (DCA): ${usd(DCA_WEEKLY)}/semana (${usd(DCA_WEEKLY*52)}/año).`,
+    ``,
+    `### Transición de cripto (techo por año)`,
+    ``,
+    table(['Año','Techo'],[...Object.keys(CRYPTO_CEILING).sort().map(y=>[y+(Number(y)===new Date().getFullYear()?' (actual)':''),CRYPTO_CEILING[y]+'%']),
+      [(Math.max(...Object.keys(CRYPTO_CEILING).map(Number))+1)+'+','25%']]),
+    ``,
+    `Con cripto plano, llegar a 25% solo con aportaciones tomaría ~${yearsToCryptoTarget().toFixed(1)} años.`,
+    ``,
+    `### Reglas`,
+    ``,
+    ...STRATEGY_RULES.map(([r,d],i)=>`${i+1}. **${r}.** ${d}`),
+    ``,
+    `## 3. Alertas actuales`,
+    ``,
+    ...(()=>{const a=strategyAlerts();return a.length?a.map(x=>`- **${x.type==='bad'?'Acción requerida':'Atención'}:** ${x.msg}`):['- Todo en meta.'];})(),
+    ``,
+    `## 4. Plan DCA de esta semana`,
+    ``,
+    (()=>{const plan=dcaPlan();return plan.length?table(['Clase','Ticker','Monto/semana','Cuenta','Hueco USD','Nota'],
+      plan.map(c=>{const v=buyVehicle(c.key);return [c.label,v.ticker,usd(c.amt),(v.accts.length?v.accts:['MX']).map(acctLabel).join(', '),usd(c.gap),
+        (v.held?'Ya la tiene: acumular':'Nueva posición')+(v.others.length?` · no agregar a ${v.others.join(', ')}`:'')];})):'Todas las clases están en meta.';})(),
+    ``,
+    `## 5. Posiciones activas`,
+    ``,
+    `"Fuente": en vivo = precio de la hoja de Google en la última actualización; estático = valor de respaldo en el código; manual = capturado por el usuario.`,
+    ``,
+    table(['Ticker','Nombre','Cuenta','Categoría','Clase','Unidades','Precio','Costo/unidad','Costo total','Valor','P/L %','P/L USD','Peso','Fuente'],
+      [...ap].sort((a,b)=>b.valueUSD-a.valueUSD).map(p=>[p.ticker,p.name,acctLabel(p.acct),catLabel(p.cat),
+        ASSET_CLASSES.find(c=>c.key===assetClass(p)).label,p.units.toFixed(4),px(p.priceUSD),px(p.units>0?p.costTotalUSD/p.units:0),
+        usd(p.costTotalUSD),usd(p.valueUSD),pct(plPct(p)),usd(p.valueUSD-p.costTotalUSD),pct(t>0?p.valueUSD/t*100:0),priceSource(p)])),
+    ``,
+    `## 6. Tickers en más de una cuenta (combinado)`,
+    ``,
+    (()=>{const multi=Object.values(byTicker).filter(g=>g.accts.length>1);return multi.length?table(['Ticker','Cuentas','Unidades','Costo promedio ponderado','Precio','Valor','P/L %'],
+      multi.sort((a,b)=>b.valueUSD-a.valueUSD).map(g=>[g.ticker,g.accts.map(acctLabel).join(', '),g.units.toFixed(4),px(g.units>0?g.costTotalUSD/g.units:0),px(g.priceUSD),usd(g.valueUSD),pct(plPct(g))])):'Ninguno.';})(),
+    ``,
+    `## 7. Por cuenta`,
+    ``,
+    table(['Cuenta','Valor','Peso','Costo','P/L %'],Object.entries(byAcct).sort((a,b)=>b[1].v-a[1].v)
+      .map(([k,a])=>[acctLabel(k),usd(a.v),pct(t>0?a.v/t*100:0),usd(a.c),pct(a.c>0?(a.v-a.c)/a.c*100:0)])),
+    ``,
+    `## 8. Por categoría (sector/estilo, informativo)`,
+    ``,
+    table(['Categoría','Valor','Peso'],Object.entries(byCat).sort((a,b)=>b[1]-a[1]).map(([k,v])=>[catLabel(k),usd(v),pct(t>0?v/t*100:0)])),
+    ``,
+    `## 9. Correlación (estimada)`,
+    ``,
+    `Correlación interna estimada: ${calcCorr().toFixed(2)} (meta < 0.65). Es un promedio ponderado de correlaciones fijas por categoría contra el S&P 500; no se calcula con rendimientos históricos.`,
+    ``,
+    table(['Categoría','Correlación vs S&P 500 (supuesta)','Peso en portafolio'],Object.entries(byCat).sort((a,b)=>b[1]-a[1])
+      .map(([k,v])=>[catLabel(k),(CAT_CORR[k]??0.7).toFixed(2),pct(t>0?v/t*100:0)])),
+    ``,
+    `## 10. Cuentas de retiro (fuera del portafolio activo)`,
+    ``,
+    rp.length?table(['Cuenta','Valor USD','Aportaciones / costo USD','P/L %'],rp.map(p=>[p.name,usd(p.valueUSD),usd(p.costTotalUSD),pct(plPct(p))])):'Sin datos.',
+    ``,
+    `## 11. Contexto de mercado (capturado por el usuario)`,
+    ``,
+    localStorage.getItem('plv2_market_ctx')||'No capturado.',
+    ``,
+    `## 12. Historial del portafolio activo`,
+    ``,
+    hist.length?[
+      `Registros: ${hist.length} · del ${hist[0].date.slice(0,10)} al ${hist[hist.length-1].date.slice(0,10)} · máximo ${usd(Math.max(...hist.map(h=>h.active)))} · mínimo ${usd(Math.min(...hist.map(h=>h.active)))}`,
+      ``,
+      table(['Fecha','Activo','Retiro','Total','P/L activo'],hist.slice(-10).map(h=>[h.date.slice(0,10),usd(h.active),usd(h.retiro),usd(h.total),pct(h.pnlPct)])),
+    ].join('\n'):'Sin historial guardado.',
+    ``,
+    `## 13. Limitaciones de los datos`,
+    ``,
+    `- Las posiciones con fuente "estático" usan un precio de respaldo que puede estar desactualizado.`,
+    `- Los ETFs listados en Toronto de la cuenta CA (p. ej. ZSP, XSP) podrían venir cotizados en CAD y no en USD; no se ha confirmado la conversión.`,
+    `- AGF-CA se clasifica como acciones de EE.UU. por supuesto; su composición real no está confirmada. TSM se clasifica como internacional.`,
+    `- COIN y BMNR son acciones, pero cuentan como exposición cripto.`,
+    `- Las correlaciones son estimaciones fijas por categoría, no calculadas.`,
+    `- El P/L es simple contra costo; no es TIR ni considera la fecha de cada aportación.`,
+    `- No se descompone la exposición dentro de los ETFs (p. ej. AAPL dentro de VOO).`,
+    ``,
+    `No incluye (privacidad): nombre, correo, URLs de las fuentes de datos, credenciales ni endpoints.`,
+    ``);
+  return out.join('\n');
+}
+function exportMarkdown(){
+  const blob=new Blob([buildPortfolioMarkdown()],{type:'text/markdown;charset=utf-8'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url;
+  a.download='portafolio_'+new Date().toISOString().slice(0,10)+'.md';
   a.click();
   URL.revokeObjectURL(url);
 }
