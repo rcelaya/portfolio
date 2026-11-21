@@ -126,10 +126,13 @@ function bootAuth(){
 // ─── CONSTANTS ───
 const ACTIVE_ACCOUNTS = ['MX','CA','CA2','CRYPTO','BITSO','AGF'];
 const RETIRO_ACCOUNTS = ['RETIRO'];
-const CAD_USD = 0.7289;
-const MXN_USD = 0.0488;
+// ETFs de la hoja que cotizan en CAD (Bolsa de Toronto). La hoja también puede indicarlo con una columna "moneda".
+const CAD_PRICED_TICKERS = ['ZSP','XSP'];
+// Reclasificaciones de categoría sobre lo que manda la hoja.
+const CAT_OVERRIDES = {VNQ:'realestate'};
 
 // ─── STATIC DATA ───
+// Respaldo si la hoja no responde. Precios en USD salvo que se indique ccy (priceN/costN en esa moneda).
 const STATIC_POSITIONS = [
   {ticker:'COIN',name:'Coinbase Global',units:10.99985,costUSD:205.85,priceUSD:206.00,cat:'crypto',acct:'MX'},
   {ticker:'GOOG',name:'Alphabet Inc',units:6.59483,costUSD:154.20,priceUSD:307.41,cat:'tech',acct:'MX'},
@@ -146,8 +149,8 @@ const STATIC_POSITIONS = [
   {ticker:'DIS',name:'Walt Disney Co',units:0.00657,costUSD:96.50,priceUSD:100.46,cat:'tech',acct:'MX'},
   {ticker:'SPYG',name:'SPDR S&P 500 Growth',units:75.2401,costUSD:84.30,priceUSD:101.98,cat:'index',acct:'CA'},
   {ticker:'VOO',name:'Vanguard S&P 500',units:8.2197,costUSD:395.20,priceUSD:612.88,cat:'index',acct:'CA'},
-  {ticker:'ZSP',name:'BMO S&P 500 ETF',units:62.4804,costUSD:53.00,priceUSD:73.12,cat:'index',acct:'CA'},
-  {ticker:'XSP',name:'iShares S&P 500 CAD-hdg',units:57.6236,costUSD:34.40,priceUSD:49.42,cat:'index',acct:'CA'},
+  {ticker:'ZSP',name:'BMO S&P 500 ETF',units:62.4804,ccy:'CAD',costN:72.71,priceN:100.32,cat:'index',acct:'CA'},
+  {ticker:'XSP',name:'iShares S&P 500 CAD-hdg',units:57.6236,ccy:'CAD',costN:47.19,priceN:67.80,cat:'index',acct:'CA'},
   {ticker:'AAPL',name:'Apple Inc',units:10.2434,costUSD:164.10,priceUSD:251.03,cat:'tech',acct:'CA'},
   {ticker:'META',name:'Meta Platforms',units:3.2923,costUSD:456.20,priceUSD:617.35,cat:'tech',acct:'CA'},
   {ticker:'MSFT',name:'Microsoft Corp',units:4.2021,costUSD:351.80,priceUSD:394.26,cat:'tech',acct:'CA'},
@@ -162,20 +165,18 @@ const STATIC_POSITIONS = [
   {ticker:'AAVE',name:'Aave',units:1.3,costUSD:285.1,priceUSD:111.67,cat:'crypto',acct:'CRYPTO'},
   {ticker:'HYPE',name:'Hyperliquid',units:3.4,costUSD:48.7,priceUSD:42.47,cat:'crypto',acct:'CRYPTO'},
   {ticker:'LINK',name:'Chainlink',units:11.58,costUSD:22.03,priceUSD:8.97,cat:'crypto',acct:'CRYPTO'},
-  {ticker:'ARB',name:'Arbitrum',units:918.35,costUSD:0.467,priceUSD:0.10,cat:'crypto',acct:'CRYPTO'},
   {ticker:'UNI',name:'Uniswap',units:20.12,costUSD:8.84,priceUSD:3.61,cat:'crypto',acct:'CRYPTO'},
-  // RETIRO — RRSP y AFORE separados
-  {ticker:'RRSP-SC',name:'RRSP Scotiabank',units:1,costUSD:22623*CAD_USD,priceUSD:22623*CAD_USD,cat:'retiro',acct:'RETIRO'},
-  {ticker:'RRSP-WS',name:'RRSP Wealthsimple',units:1,costUSD:26066*CAD_USD,priceUSD:29499*CAD_USD,cat:'retiro',acct:'RETIRO'},
-  {ticker:'AFORE',name:'AFORE México',units:1,costUSD:1385366*MXN_USD,priceUSD:1385366*MXN_USD,cat:'retiro',acct:'RETIRO'},
-  // AGF — portafolio activo (cuenta de inversión gestionada)
-  {ticker:'AGF-CA',name:'AGF Canadá',units:1,costUSD:24700*CAD_USD,priceUSD:31588*CAD_USD,cat:'index',acct:'AGF'},
-  // Cash — se actualiza desde Configurar
-  {ticker:'CASH-MX',name:'Efectivo MXN 6.5% fijo',units:1,costUSD:0,priceUSD:0,cat:'cash',acct:'MX'},
-  {ticker:'CASH-CA',name:'Efectivo CAD',units:1,costUSD:0,priceUSD:0,cat:'cash',acct:'CA'},
+  // Valores manuales (se capturan en Configurar), en su moneda
+  {ticker:'RRSP-SC',name:'RRSP Scotiabank',units:1,ccy:'CAD',costN:22623,priceN:22623,cat:'retiro',acct:'RETIRO'},
+  {ticker:'RRSP-WS',name:'RRSP Wealthsimple',units:1,ccy:'CAD',costN:26066,priceN:29499,cat:'retiro',acct:'RETIRO'},
+  {ticker:'AFORE',name:'AFORE México',units:1,ccy:'MXN',costN:1385366,priceN:1385366,cat:'retiro',acct:'RETIRO'},
+  {ticker:'AGF-CA',name:'TFSA Primerica · AGF Asset Builder Fund III',units:1,ccy:'CAD',costN:24700,priceN:31588,cat:'index',acct:'AGF'},
+  {ticker:'CASH-MX',name:'Efectivo MXN 6.5% fijo',units:1,ccy:'MXN',costN:0,priceN:0,cat:'cash',acct:'MX'},
+  {ticker:'CASH-CA',name:'Efectivo CAD',units:1,ccy:'CAD',costN:0,priceN:0,cat:'cash',acct:'CA'},
 ];
+const normalizePos=p=>({...p,ccy:p.ccy||'USD',priceN:p.priceN??p.priceUSD,costN:p.costN??p.costUSD});
 
-let positions = STATIC_POSITIONS.map(p=>({...p,valueUSD:p.units*p.priceUSD,costTotalUSD:p.units*p.costUSD}));
+let positions = [];
 let sheetUrl = localStorage.getItem('plv2_url_main')||'https://script.google.com/macros/s/AKfycbxbs-aX6hOhRfFl8CaFK6EmWDq6713u8pg8cCigpXUP49MLdf9rxHYDTYxpNKF3FNJz/exec?sheet=Portfolio';
 let cryptoUrl = localStorage.getItem('plv2_url_crypto')||'https://script.google.com/macros/s/AKfycbxbs-aX6hOhRfFl8CaFK6EmWDq6713u8pg8cCigpXUP49MLdf9rxHYDTYxpNKF3FNJz/exec?sheet=Crypto';
 let acctFilter = 'active';
@@ -195,8 +196,105 @@ const totalActive= ()=>activePos().reduce((s,p)=>s+p.valueUSD,0);
 const totalRetiro= ()=>retiroPos().reduce((s,p)=>s+p.valueUSD,0);
 const totalAll   = ()=>positions.reduce((s,p)=>s+p.valueUSD,0);
 
-const catClass = c=>({index:'ci',tech:'ct',crypto:'cc',intl:'cl',defense:'cd',hedge:'ch',bio:'cb',retiro:'cd',cash:'cm'}[c]||'ci');
-const catLabel = c=>({index:'Index',tech:'Tech',crypto:'Cripto',intl:'Internacional',defense:'Defensa',hedge:'Oro',bio:'Biotech',retiro:'Retiro',cash:'Efectivo'}[c]||c);
+const catClass = c=>({index:'ci',tech:'ct',crypto:'cc',intl:'cl',defense:'cd',hedge:'ch',bio:'cb',retiro:'cd',cash:'cm',realestate:'cd',bonds:'cm'}[c]||'ci');
+const catLabel = c=>({index:'Index',tech:'Tech',crypto:'Cripto',intl:'Internacional',defense:'Defensa',hedge:'Oro',bio:'Biotech',retiro:'Retiro',cash:'Efectivo',realestate:'Bienes raíces',bonds:'Renta fija (bonos)'}[c]||c);
+
+// ─── TIPOS DE CAMBIO ───
+// Valor = tipo de cambio del día. Costo = tipo de cambio histórico (el de Configurar), para que el P/L
+// no brinque solo por la moneda. Las tasas se guardan como USD por 1 unidad de moneda.
+const FX_KEY='plv2_fx', FX_MODE_KEY='plv2_fx_mode';
+const FX_SANE={CAD:[0.5,1.2],MXN:[0.02,0.12]};
+let FX={CAD:null,MXN:null}, fxChecked=false;
+const fxMode=()=>localStorage.getItem(FX_MODE_KEY)==='fixed'?'fixed':'live';
+function loadManual(){try{return JSON.parse(localStorage.getItem('plv2_manual')||'{}');}catch(e){return {};}}
+function loadSavedFx(){try{return JSON.parse(localStorage.getItem(FX_KEY)||'{}');}catch(e){return {};}}
+const saneFx=(ccy,r)=>typeof r==='number'&&isFinite(r)&&r>=FX_SANE[ccy][0]&&r<=FX_SANE[ccy][1];
+function histRate(ccy){
+  if(ccy==='USD')return 1;
+  const m=loadManual();
+  return ccy==='CAD'?1/(m.cad||1.3719):(m.mxn||0.0488);
+}
+function liveRate(ccy){
+  if(ccy==='USD'||fxMode()==='fixed')return histRate(ccy);
+  return FX[ccy]?.rate||histRate(ccy);
+}
+// Antes de la primera consulta se usa el último valor bueno guardado.
+(function(){const s=loadSavedFx();['CAD','MXN'].forEach(c=>{if(s[c]&&saneFx(c,s[c].rate))FX[c]={...s[c],stale:false};});})();
+
+// 1) La hoja (misma fuente que los precios): json.fx = {CADUSD, MXNUSD} o filas con ticker CADUSD / MXNUSD.
+// 2) Respaldo: API pública de Frankfurter (BCE, una vez por día hábil). 3) Si falla todo: último valor bueno guardado.
+const FX_SHEET_TICKERS={CADUSD:'CAD',MXNUSD:'MXN'};
+const fxSheetKey=t=>String(t||'').toUpperCase().replace('CURRENCY:','');
+async function updateFx(sheetJson){
+  fxChecked=true;
+  if(fxMode()==='fixed')return;
+  const got={};
+  Object.entries(FX_SHEET_TICKERS).forEach(([k,c])=>{
+    const row=(sheetJson?.positions||[]).find(p=>fxSheetKey(p.ticker)===k);
+    const r=parseFloat(sheetJson?.fx?.[k]??row?.precio);
+    if(saneFx(c,r))got[c]={rate:r,source:'Google Finance (hoja)'};
+  });
+  if(!got.CAD||!got.MXN){
+    try{
+      const j=await (await fetch('https://api.frankfurter.dev/v1/latest?base=USD&symbols=CAD,MXN')).json();
+      ['CAD','MXN'].forEach(c=>{const per=j?.rates?.[c], r=per>0?1/per:NaN; if(!got[c]&&saneFx(c,r))got[c]={rate:r,source:'Frankfurter (BCE, '+(j.date||'')+')'};});
+    }catch(e){}
+  }
+  const saved=loadSavedFx(), now=new Date().toISOString();
+  ['CAD','MXN'].forEach(c=>{
+    if(got[c]){FX[c]={...got[c],at:now,stale:false}; saved[c]={rate:got[c].rate,at:now,source:got[c].source};}
+    else if(saved[c]&&saneFx(c,saved[c].rate)) FX[c]={...saved[c],stale:true};
+    else FX[c]=null;
+  });
+  localStorage.setItem(FX_KEY,JSON.stringify(saved));
+}
+const fmtFxDate=iso=>iso?new Date(iso).toLocaleString('es-MX',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}):'';
+const usdPer=ccy=>1/liveRate(ccy);
+function fxSummary(){
+  const pair=`USD/CAD ${usdPer('CAD').toFixed(4)} · USD/MXN ${usdPer('MXN').toFixed(2)}`;
+  if(fxMode()==='fixed') return {text:`${pair} · fijo (Configurar)`,stale:false};
+  const stale=['CAD','MXN'].some(c=>!FX[c]||FX[c].stale);
+  const ref=FX.CAD||FX.MXN;
+  if(!ref) return {text:`${pair} · sin dato en vivo: fijo de Configurar`,stale:fxChecked};
+  return {text:`${pair} · ${stale?'desactualizado':'en vivo'}${ref.at?' · '+fmtFxDate(ref.at):''}${ref.source?' · '+ref.source:''}`,stale};
+}
+function fxAlerts(){
+  if(fxMode()==='fixed'||!fxChecked)return [];
+  const out=[];
+  ['CAD','MXN'].forEach(c=>{
+    if(FX[c]?.stale) out.push({type:'warn',msg:`Tipo de cambio USD/${c} desactualizado: se usa el último valor bueno (${usdPer(c).toFixed(c==='CAD'?4:2)}) del ${fmtFxDate(FX[c].at)}`});
+    else if(!FX[c]) out.push({type:'warn',msg:`Sin tipo de cambio USD/${c} en vivo: se usa el fijo de Configurar (${usdPer(c).toFixed(c==='CAD'?4:2)}).`});
+  });
+  return out;
+}
+
+// ─── VALUACIÓN ───
+// P/L total = P/L por inversión (movimiento en moneda local, al TC histórico) + P/L por tipo de cambio.
+function revalue(){
+  positions.forEach(p=>{
+    const live=liveRate(p.ccy), hist=histRate(p.ccy);
+    p.priceUSD=p.priceN*live;
+    p.valueUSD=p.units*p.priceUSD;
+    p.costUSD=p.costN*hist;
+    p.costTotalUSD=p.units*p.costUSD;
+    p.pnlFxUSD=p.units*p.priceN*(live-hist);
+    p.pnlInvUSD=p.valueUSD-p.costTotalUSD-p.pnlFxUSD;
+  });
+}
+function applyManual(d){
+  const set=(t,val,cost)=>positions.filter(p=>p.ticker===t).forEach(p=>{p.units=1;p.priceN=val;p.costN=cost;});
+  set('RRSP-SC',d.rrspSc||22623,d.rrspScCost||d.rrspSc||22623);
+  set('RRSP-WS',d.rrspWs||29499,d.rrspWsCost||26066);
+  set('AGF-CA',d.agf||31588,d.agfCost||24700);
+  set('AFORE',d.afore||1385366,d.aforeCost||d.afore||1385366);
+  set('CASH-MX',d.cashMx||0,d.cashMxCost||d.cashMx||0);
+  set('CASH-CA',d.cashCa||0,d.cashCaCost||d.cashCa||0);
+}
+function resetPositions(){
+  positions=STATIC_POSITIONS.map(normalizePos);
+  applyManual(loadManual());
+  revalue();
+}
 
 // ─── ESTRATEGIA (opción A) ───
 // Fuente única de metas y reglas: la usan Estrategia, Asignación, Plan DCA y el prompt de IA.
@@ -209,12 +307,47 @@ const ASSET_CLASSES=[
   {key:'gold',  label:'Oro',                      target:5,  color:'#854f0b', note:'Cobertura ante caídas e inflación'},
   {key:'fixed', label:'Renta fija / Cash',        target:10, color:'#6a7080', note:'Colchón de liquidez; MXN rinde 6.5% fijo'},
 ];
+// ─── MEZCLAS POR CLASE (look-through) ───
+// Cualquier posición puede tener una mezcla opcional. Cada componente tiene un tipo que define a qué clase de la
+// estrategia suma y qué correlación usa. Sin mezcla válida, la posición cuenta 100% en su clase única.
+const COMPONENT_TYPES={
+  us:    {label:'Acciones EE.UU.',          cls:'us',     bucket:'index'},
+  intl:  {label:'Acciones internacionales', cls:'intl',   bucket:'intl'},
+  crypto:{label:'Cripto',                   cls:'crypto', bucket:'crypto'},
+  gold:  {label:'Oro',                      cls:'gold',   bucket:'hedge'},
+  bonds: {label:'Renta fija (bonos)',       cls:'fixed',  bucket:'bonds'},
+  cash:  {label:'Efectivo',                 cls:'fixed',  bucket:'cash'},
+};
+// Los perfiles oficiales suelen sumar entre 99% y 101% por redondeo; dentro de esa tolerancia se normaliza a 100%.
+const MIX_TOLERANCE=1;
+const MIX_KEY='plv2_mixes';
+const DEFAULT_MIXES=[{ticker:'AGF-CA',date:'2026-10-31',source:'Perfil oficial AGF Asset Builder Fund III, serie DSC · MER 2.59%',parts:[
+  {label:'Renta variable EE.UU.',pct:36.4,type:'us'},
+  {label:'Renta fija canadiense',pct:34.6,type:'bonds'},
+  {label:'Renta variable canadiense',pct:26.0,type:'intl'},
+  {label:'Renta variable internacional',pct:1.6,type:'intl'},
+  {label:'Efectivo',pct:2.3,type:'cash'},
+]}];
+function loadMixes(){try{const s=JSON.parse(localStorage.getItem(MIX_KEY)||'null');return Array.isArray(s)?s:DEFAULT_MIXES;}catch(e){return DEFAULT_MIXES;}}
+const mixSum=m=>(m.parts||[]).reduce((s,x)=>s+(parseFloat(x.pct)||0),0);
+const mixValid=m=>!!(m.parts?.length&&m.parts.every(x=>COMPONENT_TYPES[x.type]&&parseFloat(x.pct)>=0)&&Math.abs(mixSum(m)-100)<=MIX_TOLERANCE);
+function mixFor(ticker){const m=loadMixes().find(x=>x.ticker===ticker);return m&&mixValid(m)?m:null;}
+function mixAlerts(){
+  const out=[];
+  loadMixes().forEach(m=>{
+    if(!mixValid(m)) out.push({type:'warn',msg:`La mezcla de ${m.ticker} suma ${mixSum(m).toFixed(1)}% (debe ser 100% ±${MIX_TOLERANCE}); no se usa y la posición cuenta en su clase única.`});
+    else if(m.date&&(Date.now()-new Date(m.date))/864e5>100) out.push({type:'warn',msg:`La mezcla de ${m.ticker} es del ${m.date}. Actualízala con el perfil trimestral más reciente.`});
+  });
+  return out;
+}
+const dataAlerts=()=>[...fxAlerts(),...mixAlerts()];
+
 // Vehículo preferido para acumular en cada clase, en orden. Se elige el primero que ya tengas.
 // VEA va antes que VGK porque VGK (Europa) ya está contenido en VEA (desarrollados ex-EE.UU.).
 const CLASS_BUY_PREF={us:['VTI','VOO','SPYG'],intl:['VEA','VXUS','VGK'],gold:['GLD'],fixed:['CASH-MX','CASH-CA']};
 function buyVehicle(key){
   const ap=activePos();
-  const held=[...new Set(ap.filter(p=>assetClass(p)===key&&p.valueUSD>0).map(p=>p.ticker))];
+  const held=[...new Set(ap.filter(p=>!mixFor(p.ticker)&&assetClass(p)===key&&p.valueUSD>0).map(p=>p.ticker))];
   const pref=CLASS_BUY_PREF[key]||[];
   const ticker=pref.find(t=>held.includes(t))||pref[0];
   const accts=[...new Set(ap.filter(p=>p.ticker===ticker&&p.valueUSD>0).map(p=>p.acct))];
@@ -231,15 +364,32 @@ function assetClass(p){
   if(CLASS_OVERRIDES[p.ticker])return CLASS_OVERRIDES[p.ticker];
   return ({crypto:'crypto',hedge:'gold',cash:'fixed',intl:'intl'}[p.cat])||'us';
 }
-function classBreakdown(){
-  const t=totalActive(), by={};
+// Escenario 'before' = cómo calculaba el dashboard antes del look-through: sin mezclas, categoría tal como
+// la manda la hoja, TC fijo de Configurar y precios en CAD de la hoja tomados como USD.
+function oldAssetClass(p){
+  if(p.ticker==='TSM')return 'intl';
+  return ({crypto:'crypto',hedge:'gold',cash:'fixed',intl:'intl'}[p.catSheet||p.cat])||'us';
+}
+function posValue(p,scn){
+  if(scn!=='before')return p.valueUSD;
+  return p.units*p.priceN*(p.live&&p.ccy!=='USD'?1:histRate(p.ccy));
+}
+function positionParts(p,scn){
+  if(scn!=='before'){
+    const m=mixFor(p.ticker);
+    if(m){const s=mixSum(m);return m.parts.map(x=>({type:x.type,cls:COMPONENT_TYPES[x.type].cls,share:(parseFloat(x.pct)||0)/s}));}
+  }
+  return [{type:null,cls:scn==='before'?oldAssetClass(p):assetClass(p),share:1}];
+}
+function classBreakdown(scn){
+  const by={}; let t=0;
   ASSET_CLASSES.forEach(c=>by[c.key]=0);
-  activePos().forEach(p=>{by[assetClass(p)]+=p.valueUSD;});
+  activePos().forEach(p=>{const v=posValue(p,scn); t+=v; positionParts(p,scn).forEach(x=>{by[x.cls]+=v*x.share;});});
   return {t,by,pct:k=>t>0?by[k]/t*100:0};
 }
 // Reparte el DCA semanal entre las clases por debajo de su meta, proporcional al hueco en USD. Nunca a cripto.
-function dcaPlan(){
-  const {t,by}=classBreakdown();
+function dcaPlan(scn){
+  const {t,by}=classBreakdown(scn);
   const gaps=ASSET_CLASSES.filter(c=>c.key!=='crypto')
     .map(c=>({...c,gap:Math.max(0,c.target/100*t-by[c.key])})).filter(c=>c.gap>0);
   const sum=gaps.reduce((s,c)=>s+c.gap,0);
@@ -250,29 +400,29 @@ function dcaPlan(){
   return plan;
 }
 // Venta de cripto (con ganancia) necesaria para volver al techo, reinvirtiendo en los huecos.
-function cryptoExcessUSD(){
-  const {t,by}=classBreakdown();
+function cryptoExcessUSD(scn){
+  const {t,by}=classBreakdown(scn);
   return Math.max(0,by.crypto-cryptoCeiling()/100*t);
 }
 // Estado de una clase contra su meta. Es la única fuente de color de estado en todo el dashboard:
 // ok = en banda · warn = fuera de banda (lo corrige el DCA) · bad = cripto arriba del techo (requiere vender).
-function targetStatus(key){
-  const c=ASSET_CLASSES.find(x=>x.key===key), a=classBreakdown().pct(key);
+function targetStatus(key,scn){
+  const c=ASSET_CLASSES.find(x=>x.key===key), a=classBreakdown(scn).pct(key);
   if(key==='crypto'&&a>cryptoCeiling()) return {level:'bad',label:'Arriba del techo',a};
   if(a>c.target+REBAL_BAND) return {level:'warn',label:key==='crypto'?'En transición':'Arriba',a};
   if(a<c.target-REBAL_BAND) return {level:'warn',label:'Debajo',a};
   return {level:'ok',label:'En meta',a};
 }
 const STATUS_LEGEND=`<div class="legend-status"><span class="s-ok">En meta (±${REBAL_BAND} pts)</span><span class="s-warn">Fuera de banda: lo corrige el DCA</span><span class="s-bad">Arriba del techo: vender con ganancia</span></div>`;
-function strategyAlerts(){
+function strategyAlerts(scn){
   const ceil=cryptoCeiling(), out=[];
   ASSET_CLASSES.forEach(c=>{
-    const s=targetStatus(c.key), a=s.a.toFixed(1);
+    const s=targetStatus(c.key,scn), a=s.a.toFixed(1);
     if(s.level==='ok')return;
     let msg;
     if(c.key==='crypto') msg=s.level==='bad'
-      ?`Cripto en ${a}% rebasa el techo de ${ceil}% para ${new Date().getFullYear()}. Vende ~${fmt(cryptoExcessUSD())} de BTC (con ganancia) y reinviértelo en los huecos.`
-      :`Cripto en ${a}% (techo ${ceil}%, meta ${c.target}%). No agregues más; se diluye con las aportaciones en ~${yearsToCryptoTarget().toFixed(1)} años.`;
+      ?`Cripto en ${a}% rebasa el techo de ${ceil}% para ${new Date().getFullYear()}. Vende ~${fmt(cryptoExcessUSD(scn))} de BTC (con ganancia) y reinviértelo en los huecos.`
+      :`Cripto en ${a}% (techo ${ceil}%, meta ${c.target}%). No agregues más; se diluye con las aportaciones en ~${yearsToCryptoTarget(scn).toFixed(1)} años.`;
     else msg=s.a<c.target
       ?`${c.label} en ${a}% (meta ${c.target}%). El Plan DCA lo prioriza.`
       :`${c.label} en ${a}% (meta ${c.target}%). No compres más hasta que regrese a la banda de ±${REBAL_BAND} pts.`;
@@ -281,8 +431,8 @@ function strategyAlerts(){
   return out;
 }
 // Años para llegar a la meta solo con aportaciones, si cripto se mantiene plano.
-function yearsToCryptoTarget(){
-  const {t,by}=classBreakdown(), tgt=ASSET_CLASSES.find(c=>c.key==='crypto').target/100;
+function yearsToCryptoTarget(scn){
+  const {t,by}=classBreakdown(scn), tgt=ASSET_CLASSES.find(c=>c.key==='crypto').target/100;
   const need=by.crypto/tgt-t;
   return need>0?need/(DCA_WEEKLY*52):0;
 }
@@ -296,44 +446,35 @@ function setStatus(s,t){
 function setUpdated(){document.getElementById('lastUpd').textContent='Actualizado '+new Date().toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit'});}
 
 // ─── FETCH ───
+// Moneda del precio que manda la hoja: columna "moneda" si existe; si no, la lista de ETFs canadienses.
+function sheetCcy(lp){
+  const m=String(lp.moneda||'').toUpperCase();
+  if(['USD','CAD','MXN'].includes(m))return m;
+  return CAD_PRICED_TICKERS.includes(lp.ticker)?'CAD':'USD';
+}
 async function fetchAll(){
   if(!sheetUrl){setStatus('','Sin URL');renderAll();return;}
   setStatus('','Cargando...');
+  let json=null, ok=true;
   try{
-    // Reset to static positions before every fetch to avoid duplicates
-    positions = STATIC_POSITIONS.map(p=>({...p,valueUSD:p.units*p.priceUSD,costTotalUSD:p.units*p.costUSD}));
-    // Re-apply saved manual values after reset
-    const savedM2=localStorage.getItem('plv2_manual');
-    if(savedM2){try{
-      const d=JSON.parse(savedM2);
-      const cu=1/(d.cad||1.3719);
-      positions.forEach((p,i)=>{
-        if(p.ticker==='RRSP-SC'){positions[i].priceUSD=(d.rrspSc||22623)*cu;positions[i].valueUSD=positions[i].priceUSD;positions[i].costTotalUSD=(d.rrspScCost||d.rrspSc||22623)*cu;}
-        if(p.ticker==='RRSP-WS'){positions[i].priceUSD=(d.rrspWs||29499)*cu;positions[i].valueUSD=positions[i].priceUSD;positions[i].costTotalUSD=(d.rrspWsCost||26066)*cu;}
-        if(p.ticker==='AGF-CA'){positions[i].priceUSD=(d.agf||31588)*cu;positions[i].valueUSD=positions[i].priceUSD;positions[i].costTotalUSD=(d.agfCost||24700)*cu;}
-        if(p.ticker==='AFORE'){positions[i].priceUSD=(d.afore||1385366)*(d.mxn||0.0488);positions[i].valueUSD=positions[i].priceUSD;positions[i].costTotalUSD=(d.aforeCost||d.afore||1385366)*(d.mxn||0.0488);}
-        if(p.ticker==='CASH-MX'){const v=(d.cashMx||0)*(d.mxn||0.0488);positions[i].priceUSD=v;positions[i].valueUSD=v;positions[i].costTotalUSD=(d.cashMxCost||d.cashMx||0)*(d.mxn||0.0488);}
-        if(p.ticker==='CASH-CA'){const v=(d.cashCa||0)*cu;positions[i].priceUSD=v;positions[i].valueUSD=v;positions[i].costTotalUSD=(d.cashCaCost||d.cashCa||0)*cu;}
-      });
-    }catch(e){}}
+    // Reinicia desde los estáticos en cada carga para no duplicar
+    positions=STATIC_POSITIONS.map(normalizePos);
+    applyManual(loadManual());
 
     const res=await fetch(sheetUrl+'&_='+Date.now());
-    const json=await res.json();
+    json=await res.json();
     if(json.ok&&Array.isArray(json.positions)){
-      json.positions.filter(p=>p.ticker&&p.precio>0).forEach(lp=>{
-        const cat = (lp.categoria==='metals'||lp.categoria==='hedge') ? 'hedge' : (lp.categoria||'index');
+      json.positions.filter(p=>p.ticker&&p.precio>0&&!FX_SHEET_TICKERS[fxSheetKey(p.ticker)]).forEach(lp=>{
+        const catSheet = (lp.categoria==='metals'||lp.categoria==='hedge') ? 'hedge' : (lp.categoria||'index');
+        const cat = CAT_OVERRIDES[lp.ticker]||catSheet;
         const units = parseFloat(lp.acciones)||1;
         const cost  = parseFloat(lp.costBase)||lp.precio;
+        const ccy   = sheetCcy(lp);
         const idx=positions.findIndex(p=>p.ticker===lp.ticker&&p.acct===lp.cuenta);
         if(idx>=0){
-          positions[idx].priceUSD   = lp.precio;
-          positions[idx].live       = true;
-          positions[idx].units      = units;
-          positions[idx].costTotalUSD = units * cost;
-          positions[idx].valueUSD   = units * lp.precio;
-          positions[idx].cat        = cat;
+          Object.assign(positions[idx],{priceN:lp.precio,costN:cost,units,ccy,cat,catSheet,live:true});
         } else {
-          positions.push({ticker:lp.ticker,name:lp.nombre||lp.ticker,units,costUSD:cost,priceUSD:lp.precio,cat,acct:lp.cuenta||'MX',valueUSD:units*lp.precio,costTotalUSD:units*cost,live:true});
+          positions.push({ticker:lp.ticker,name:lp.nombre||lp.ticker,units,ccy,priceN:lp.precio,costN:cost,cat,catSheet,acct:lp.cuenta||'MX',live:true});
         }
       });
     }
@@ -343,36 +484,30 @@ async function fetchAll(){
         const json2=await res2.json();
         if(json2.ok&&Array.isArray(json2.positions)){
           // Map CoinGecko IDs → dashboard tickers
-        const CGID_TO_TICKER = {
-          'bitcoin':'BTC','ethereum':'ETH','staked-ether':'STETH',
-          'solana':'SOL','aave':'AAVE','hyperliquid':'HYPE',
-          'chainlink':'LINK','arbitrum':'ARB','uniswap':'UNI',
-          'matic-network':'MATIC','cardano':'ADA','polkadot':'DOT'
-        };
-        json2.positions.filter(p=>p.ticker&&p.precio>0).forEach(lp=>{
-          const dashTicker = CGID_TO_TICKER[lp.ticker.toLowerCase()] || lp.ticker.toUpperCase();
-          const units = parseFloat(lp.unidades)||1;
-          const cost  = parseFloat(lp.costBase)||lp.precio;
-          const idx=positions.findIndex(p=>p.ticker===dashTicker&&p.acct===lp.cuenta);
-          if(idx>=0){
-            positions[idx].priceUSD    = lp.precio;
-            positions[idx].live        = true;
-            positions[idx].units       = units;
-            positions[idx].costTotalUSD = units * cost;
-            positions[idx].valueUSD    = units * lp.precio;
-          }
-        });
+          const CGID_TO_TICKER = {
+            'bitcoin':'BTC','ethereum':'ETH','staked-ether':'STETH',
+            'solana':'SOL','aave':'AAVE','hyperliquid':'HYPE',
+            'chainlink':'LINK','arbitrum':'ARB','uniswap':'UNI',
+            'matic-network':'MATIC','cardano':'ADA','polkadot':'DOT'
+          };
+          json2.positions.filter(p=>p.ticker&&p.precio>0).forEach(lp=>{
+            const dashTicker = CGID_TO_TICKER[lp.ticker.toLowerCase()] || lp.ticker.toUpperCase();
+            const units = parseFloat(lp.unidades)||1;
+            const cost  = parseFloat(lp.costBase)||lp.precio;
+            const idx=positions.findIndex(p=>p.ticker===dashTicker&&p.acct===lp.cuenta);
+            if(idx>=0) Object.assign(positions[idx],{priceN:lp.precio,costN:cost,units,live:true});
+          });
         }
       }catch(e){}
     }
-    // Normalize categories after fetch — applies to all positions
-    positions.forEach((p,i)=>{
-      if(p.cat==='metals') positions[i].cat='hedge';
-    });
+  }catch(e){ok=false;}
+  await updateFx(json);
+  revalue();
+  if(ok){
     setStatus('live','En vivo · Google Finance');
     setUpdated();
     saveSnapshot();
-  }catch(e){setStatus('err','Error de conexión');}
+  } else setStatus('err','Error de conexión');
   renderAll();
 }
 
@@ -397,6 +532,8 @@ function updateHeader(){
   const ta=totalActive(), tr=totalRetiro();
   document.getElementById('hdrTotal').textContent=fmt(ta);
   document.getElementById('hdrSub').textContent='Portafolio activo · retiro '+fmt(tr)+' aparte';
+  const fx=fxSummary(), el=document.getElementById('fxInfo');
+  el.textContent=fx.text; el.className='hdr-sub'+(fx.stale?' s-warn':'');
 }
 
 // ─── OVERVIEW ───
@@ -408,12 +545,14 @@ function renderOverview(){
   const pnlAmt=t-totalCost, pnlPct=totalCost>0?(pnlAmt/totalCost)*100:0;
   const cb=classBreakdown();
   const cryptoPct=cb.pct('crypto'), goldPct=cb.pct('gold'), ceil=cryptoCeiling();
-  const wCorr=calcCorr();
+  const wCorr=calcCorr(), wInv=calcCorrInvested();
+  const pnlFx=ap.reduce((s,p)=>s+(p.pnlFxUSD||0),0), pnlInv=pnlAmt-pnlFx;
+  const sgn=n=>(n>=0?'+':'-')+fmt(Math.abs(n));
 
   document.getElementById('overviewCards').innerHTML=`
     <div class="card"><div class="card-lbl">Portafolio activo</div><div class="card-val">${fmt(t)}</div><div class="card-sub">MX+CA+Cripto+Bitso+AGF</div></div>
-    <div class="card"><div class="card-lbl">P/L total activo</div><div class="card-val ${pnlPct>=0?'up':'down'}">${fmtPct(pnlPct)}</div><div class="card-sub ${pnlPct>=0?'up':'down'}">${pnlAmt>=0?'+':''}${fmt(pnlAmt)}</div></div>
-    <div class="card"><div class="card-lbl">Correlación interna</div><div class="card-val ${wCorr>=0.80?'down':''}">${wCorr.toFixed(2)}</div><div class="card-sub">meta &lt; 0.65</div></div>
+    <div class="card"><div class="card-lbl">P/L total activo</div><div class="card-val ${pnlPct>=0?'up':'down'}">${fmtPct(pnlPct)}</div><div class="card-sub ${pnlPct>=0?'up':'down'}">${sgn(pnlAmt)}</div><div class="card-sub">inversión ${sgn(pnlInv)} · tipo de cambio ${sgn(pnlFx)}</div></div>
+    <div class="card"><div class="card-lbl">Correlación interna</div><div class="card-val ${wCorr>=0.80?'down':''}">${wCorr.toFixed(2)}</div><div class="card-sub">sin efectivo ${wInv.toFixed(2)} · meta &lt; 0.65</div></div>
     <div class="card"><div class="card-lbl">Cripto</div><div class="card-val s-${targetStatus('crypto').level}">${cryptoPct.toFixed(1)}%</div><div class="card-sub">techo ${ceil}% · meta 25%</div></div>
     <div class="card"><div class="card-lbl">Oro</div><div class="card-val s-${targetStatus('gold').level}">${goldPct.toFixed(1)}%</div><div class="card-sub">meta 5%</div></div>`;
 
@@ -461,7 +600,7 @@ function renderOverview(){
   }).join('');
 
   // Alerts — active only
-  const alerts=strategyAlerts();
+  const alerts=[...dataAlerts(),...strategyAlerts()];
   if(wCorr>0.80)alerts.push({type:'warn',msg:`Correlación interna de ${wCorr.toFixed(2)} — muy alta. El Plan DCA prioriza las clases que la bajan.`});
   const plan=dcaPlan();
   document.getElementById('weekAction').innerHTML=`
@@ -495,9 +634,9 @@ function renderPositions(){
   if(isCombined){
     const byTicker={};
     filtered.forEach(p=>{
-      if(!byTicker[p.ticker]) byTicker[p.ticker]={ticker:p.ticker,name:p.name,cat:p.cat,priceUSD:p.priceUSD,units:0,costTotalUSD:0,valueUSD:0,accts:[]};
+      if(!byTicker[p.ticker]) byTicker[p.ticker]={ticker:p.ticker,name:p.name,cat:p.cat,ccy:p.ccy,priceN:p.priceN,priceUSD:p.priceUSD,units:0,costTotalUSD:0,valueUSD:0,pnlFxUSD:0,accts:[]};
       const g=byTicker[p.ticker];
-      g.units+=p.units; g.costTotalUSD+=p.costTotalUSD; g.valueUSD+=p.valueUSD;
+      g.units+=p.units; g.costTotalUSD+=p.costTotalUSD; g.valueUSD+=p.valueUSD; g.pnlFxUSD+=p.pnlFxUSD||0;
       if(!g.accts.includes(p.acct)) g.accts.push(p.acct);
       g.priceUSD=p.priceUSD;
     });
@@ -542,15 +681,18 @@ function renderPositions(){
       ? (p.accts||[p.acct]).map(a=>`<span class="abadge ${acctClass(a)}">${a}</span>`).join(' ')
       : `<span class="abadge ${acctClass(p.acct)}">${p.acct}</span>`;
     const costPerUnit=p.units>0?p.costTotalUSD/p.units:0;
+    const mix=mixFor(p.ticker);
+    const native=p.ccy&&p.ccy!=='USD'?`<br><span style="font-size:11px;color:var(--muted);">${p.ccy} ${(p.priceN||0).toLocaleString('en-US',{maximumFractionDigits:2})}</span>`:'';
+    const fxLine=Math.abs(p.pnlFxUSD||0)>=1?`<br><span style="font-size:11px;color:var(--muted);">TC ${p.pnlFxUSD>=0?'+':'-'}${fmt(Math.abs(p.pnlFxUSD))}</span>`:'';
     return `<tr>
       <td><span class="tk">${p.ticker}</span><br><span style="font-size:11px;color:var(--muted);">${p.name}</span></td>
-      <td><span class="cpill ${catClass(p.cat)}">${catLabel(p.cat)}</span></td>
+      <td><span class="cpill ${catClass(p.cat)}">${catLabel(p.cat)}</span>${mix?`<br><span class="cpill cm" title="Se reparte por clase según su mezcla (${escAttr(mix.date)})">mezcla</span>`:''}</td>
       <td style="white-space:nowrap;">${acctCell}</td>
-      <td class="mono">${p.priceUSD<1?p.priceUSD.toFixed(4):fmt2(p.priceUSD)}</td>
+      <td class="mono">${p.priceUSD<1?p.priceUSD.toFixed(4):fmt2(p.priceUSD)}${native}</td>
       <td class="mono">${p.priceUSD<1?costPerUnit.toFixed(4):fmt2(costPerUnit)}</td>
       <td class="mono">${p.units.toFixed(4)}</td>
       <td class="mono">${fmt(p.valueUSD)}</td>
-      <td><span class="${pnl>=0?'pu':'pd'}">${fmtPct(pnl)}<br><span style="font-size:11px;">${pnlA>=0?'+':''}${fmt(pnlA)}</span></span></td>
+      <td><span class="${pnl>=0?'pu':'pd'}">${fmtPct(pnl)}<br><span style="font-size:11px;">${pnlA>=0?'+':''}${fmt(pnlA)}</span></span>${fxLine}</td>
       <td class="pn">${(p.valueUSD/t*100).toFixed(1)}%</td>
     </tr>`;
   }).join('')+`
@@ -593,9 +735,11 @@ function renderAllocation(){
   document.getElementById('allocBars').innerHTML=STATUS_LEGEND+
     ASSET_CLASSES.map(c=>bar(c.label,c.note,cb.pct(c.key),cb.by[c.key],c.color,c.target,
       c.key==='crypto'?`<div class="btg" style="left:${ceil}%;background:var(--red);" title="Techo ${ceil}%"></div>`:'',targetStatus(c.key).level)).join('')+
+    mixNote()+
     `<div class="slbl" style="margin:18px 0 10px;">Detalle por categoría — informativo, sin meta</div>`+
     Object.entries(byCat).sort((a,b)=>b[1]-a[1]).map(([k,v])=>bar(catLabel(k),'',v/t*100,v,'#9a9a90',null)).join('');
-  document.getElementById('allocAlerts').innerHTML=strategyAlerts().map(a=>`<div class="${a.type}">${a.msg}</div>`).join('');
+  document.getElementById('allocAlerts').innerHTML=[...dataAlerts(),...strategyAlerts()].map(a=>`<div class="${a.type}">${a.msg}</div>`).join('');
+  renderCompare();
   const tks={};
   ap.filter(p=>!['CRYPTO','BITSO'].includes(p.acct)).forEach(p=>{if(!tks[p.ticker])tks[p.ticker]={};tks[p.ticker][p.acct]=(tks[p.ticker][p.acct]||0)+p.valueUSD;});
   const overlaps=Object.entries(tks).filter(([,v])=>Object.keys(v).length>1);
@@ -606,24 +750,84 @@ function renderAllocation(){
   }).join('');
 }
 
-// ─── CORRELATION (active only) ───
-const CAT_CORR={index:0.98,tech:0.87,crypto:0.52,intl:0.82,defense:0.68,hedge:0.05,bio:0.55,cash:0.01};
-function calcCorr(){
-  const ap=activePos(), t=totalActive();
-  const byCat={};
-  ap.forEach(p=>{byCat[p.cat]=(byCat[p.cat]||0)+p.valueUSD;});
-  let w=0;
-  Object.keys(byCat).forEach(k=>{w+=(byCat[k]/t)*(CAT_CORR[k]||0.7);});
-  return w;
+// Antes = cálculo previo (AGF-CA 100% EE.UU., categoría de la hoja, TC fijo, ZSP/XSP sin convertir de CAD).
+// Después = look-through de mezclas + TC del día. Se calcula con los datos cargados en este momento.
+function mixNote(){
+  const held=new Set(activePos().map(p=>p.ticker));
+  const used=loadMixes().filter(m=>held.has(m.ticker)&&mixValid(m));
+  if(!used.length)return '';
+  return `<div style="font-size:11px;color:var(--muted);font-family:var(--mono);margin-top:6px;line-height:1.6;">Look-through: `+used.map(m=>{
+    const by={}, sum=mixSum(m); m.parts.forEach(x=>{const c=COMPONENT_TYPES[x.type].cls;by[c]=(by[c]||0)+x.pct/sum*100;});
+    return `${m.ticker} (mezcla del ${m.date}) = `+ASSET_CLASSES.filter(c=>by[c.key]).map(c=>`${c.label} ${by[c.key].toFixed(1)}%`).join(', ');
+  }).join(' · ')+`</div>`;
 }
+function renderCompare(){
+  const B='before', cbB=classBreakdown(B), cbA=classBreakdown();
+  const sd=n=>(n>=0?'+':'')+n.toFixed(1)+' pts';
+  const gap=n=>n>0.5?'falta '+fmt(n):n<-0.5?'sobra '+fmt(-n):'—';
+  const planTxt=pl=>pl.length?pl.map(c=>`${buyVehicle(c.key).ticker} ${fmt(c.amt)}`).join(' · '):'Sin huecos';
+  const alertList=al=>al.length?'<ul style="margin:6px 0 0 18px;font-size:12px;line-height:1.6;">'+al.map(x=>`<li class="s-${x.type==='bad'?'bad':'warn'}">${x.msg}</li>`).join('')+'</ul>':'<div class="s-ok" style="font-size:12px;">Sin alertas</div>';
+  const cell='style="padding:8px 10px;"';
+  document.getElementById('compareBody').innerHTML=`
+    <div style="font-size:12px;color:var(--muted);line-height:1.6;margin-bottom:12px;">
+      <strong>Antes:</strong> AGF-CA contaba 100% como Acciones EE.UU., VNQ como internacional, tipo de cambio fijo de Configurar y ZSP/XSP de la hoja sin convertir de CAD.
+      <strong>Después:</strong> mezclas por clase y tipo de cambio del día (${fxSummary().text}).
+    </div>
+    <div class="tbl-wrap" style="margin-bottom:14px;"><table>
+      <thead><tr><th>Clase</th><th>Meta</th><th>Antes</th><th>Después</th><th>Dif. antes</th><th>Dif. después</th><th>Hueco antes</th><th>Hueco después</th></tr></thead>
+      <tbody>${ASSET_CLASSES.map(c=>{const b=cbB.pct(c.key),a=cbA.pct(c.key);return `<tr>
+        <td ${cell}>${c.label}</td><td class="mono" ${cell}>${c.target}%</td>
+        <td class="mono" ${cell}>${b.toFixed(1)}%</td><td class="mono s-${targetStatus(c.key).level}" ${cell}>${a.toFixed(1)}%</td>
+        <td class="mono" ${cell}>${sd(b-c.target)}</td><td class="mono" ${cell}>${sd(a-c.target)}</td>
+        <td class="mono" ${cell}>${gap(c.target/100*cbB.t-cbB.by[c.key])}</td><td class="mono" ${cell}>${gap(c.target/100*cbA.t-cbA.by[c.key])}</td></tr>`;}).join('')}
+        <tr style="background:var(--surface2);"><td ${cell}><strong>Total activo</strong></td><td ${cell}></td><td class="mono" ${cell}>${fmt(cbB.t)}</td><td class="mono" ${cell}>${fmt(cbA.t)}</td><td colspan="4" ${cell}></td></tr>
+      </tbody></table></div>
+    <div class="week" style="margin-bottom:0;">
+      <div class="week-box">
+        <div class="slbl" style="margin-bottom:8px;">Plan DCA de la semana</div>
+        <div style="font-size:12px;line-height:1.8;"><span style="color:var(--muted);">Antes:</span> ${planTxt(dcaPlan(B))}<br><span style="color:var(--muted);">Después:</span> ${planTxt(dcaPlan())}</div>
+        <div class="slbl" style="margin:14px 0 8px;">Correlación interna estimada</div>
+        <div style="font-size:12px;line-height:1.8;" class="mono">Antes: ${calcCorr(B).toFixed(2)} · sin efectivo ${calcCorrInvested(B).toFixed(2)}<br>Después: ${calcCorr().toFixed(2)} · sin efectivo ${calcCorrInvested().toFixed(2)}</div>
+      </div>
+      <div class="week-box">
+        <div class="slbl">Alertas antes</div>${alertList(strategyAlerts(B))}
+        <div class="slbl" style="margin-top:12px;">Alertas después</div>${alertList(strategyAlerts())}
+      </div>
+    </div>`;
+}
+
+// ─── CORRELATION (active only) ───
+// Correlación supuesta de cada grupo contra el S&P 500. Renta fija (bonos) y efectivo son las más bajas.
+const CAT_CORR={index:0.98,tech:0.87,crypto:0.52,intl:0.82,defense:0.68,hedge:0.05,bio:0.55,cash:0.01,realestate:0.75,bonds:0.15};
+// Valor por grupo de correlación: la categoría de la posición o, si tiene mezcla, el tipo de cada componente.
+function corrBuckets(scn,excludeCash){
+  const by={};
+  activePos().forEach(p=>{
+    const v=posValue(p,scn);
+    positionParts(p,scn).forEach(x=>{
+      const b=x.type?COMPONENT_TYPES[x.type].bucket:(scn==='before'?(p.catSheet||p.cat):p.cat);
+      if(excludeCash&&b==='cash')return;
+      by[b]=(by[b]||0)+v*x.share;
+    });
+  });
+  return by;
+}
+function calcCorr(scn,excludeCash){
+  const by=corrBuckets(scn,excludeCash), t=Object.values(by).reduce((s,v)=>s+v,0);
+  return t>0?Object.entries(by).reduce((s,[k,v])=>s+v/t*(CAT_CORR[k]??0.7),0):0;
+}
+// Sin efectivo: el cash (corr ~0.01) baja el promedio y hace ver la cartera menos correlacionada de lo que está.
+const calcCorrInvested=scn=>calcCorr(scn,true);
 function renderCorrelation(){
   const ap=activePos(), t=totalActive();
   const byCat={};
   ap.forEach(p=>{byCat[p.cat]=(byCat[p.cat]||0)+p.valueUSD;});
-  const wc=calcCorr(), hp=(byCat.hedge||0)/t*100, cp=(byCat.crypto||0)/t*100;
-  const cc=wc>=0.80?'var(--red)':wc>=0.65?'var(--amber)':'var(--green)';
+  const cb=classBreakdown(), wc=calcCorr(), wi=calcCorrInvested(), hp=cb.pct('gold'), cp=cb.pct('crypto');
+  const corrCol=v=>v>=0.80?'var(--red)':v>=0.65?'var(--amber)':'var(--green)';
+  const corrTxt=v=>v>=0.80?'Muy alta':v>=0.65?'Alta':'Moderada';
   document.getElementById('corrCards').innerHTML=`
-    <div class="card"><div class="card-lbl">Correlación interna</div><div class="card-val" style="color:${cc}">${wc.toFixed(2)}</div><div class="card-sub">${wc>=0.80?'Muy alta':wc>=0.65?'Alta':'Moderada'} · meta &lt; 0.65</div></div>
+    <div class="card"><div class="card-lbl">Correlación interna</div><div class="card-val" style="color:${corrCol(wc)}">${wc.toFixed(2)}</div><div class="card-sub">${corrTxt(wc)} · incluye efectivo · meta &lt; 0.65</div></div>
+    <div class="card"><div class="card-lbl">Correlación de lo invertido</div><div class="card-val" style="color:${corrCol(wi)}">${wi.toFixed(2)}</div><div class="card-sub">${corrTxt(wi)} · sin efectivo</div></div>
     <div class="card"><div class="card-lbl">Oro (corr &lt;0.3)</div><div class="card-val" style="color:${hp>=5-REBAL_BAND?'var(--green)':'var(--red)'}">${hp.toFixed(1)}%</div><div class="card-sub">GLD · meta 5%</div></div>
     <div class="card"><div class="card-lbl">Crypto</div><div class="card-val" style="color:${cp<=8?'var(--green)':cp<=12?'var(--amber)':'var(--red)'}">${cp.toFixed(1)}%</div><div class="card-sub">Corr 0.52→0.75 en crisis</div></div>`;
   const cur=[
@@ -643,14 +847,11 @@ function renderCorrelation(){
     ]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},
     scales:{r:{min:0,max:100,ticks:{display:false},pointLabels:{font:{size:11},color:'#78776e'},grid:{color:'rgba(0,0,0,.05)'},angleLines:{color:'rgba(0,0,0,.05)'}}}}
   });
-  const risks=[
-    {l:'S&P 500 / Index',c:0.98,col:'#1a50a0',w:(byCat.index||0)/t*100},
-    {l:'Tech individual',c:0.87,col:'#1a6b3a',w:(byCat.tech||0)/t*100},
-    {l:'Internacional',c:0.82,col:'#5a3fa0',w:(byCat.intl||0)/t*100},
-    {l:'Defensa',c:0.68,col:'#8a5f0a',w:(byCat.defense||0)/t*100},
-    {l:'Crypto',c:0.52,col:'#b53a2f',w:(byCat.crypto||0)/t*100},
-    {l:'Oro (GLD)',c:0.05,col:'#854f0b',w:(byCat.hedge||0)/t*100},
-  ];
+  // Con look-through: AGF-CA suma su parte de bonos y efectivo a esos grupos, no a "Index".
+  const buckets=corrBuckets(), bt=Object.values(buckets).reduce((s,v)=>s+v,0);
+  const corrColor=c=>c>=0.8?'#b53a2f':c>=0.5?'#8a5f0a':'#1a6b3a';
+  const risks=Object.entries(buckets).map(([k,v])=>({l:catLabel(k),c:CAT_CORR[k]??0.7,col:corrColor(CAT_CORR[k]??0.7),w:bt>0?v/bt*100:0}))
+    .sort((a,b)=>b.c-a.c);
   document.getElementById('corrDetail').innerHTML=risks.map(r=>`
     <div class="ar">
       <div class="al">${r.l}<span class="as">Corr vs S&P: ${r.c.toFixed(2)} · ${r.w.toFixed(1)}% cartera activa</span></div>
@@ -718,7 +919,7 @@ async function generateRecs(){
 
     const topPos=[...ap].sort((a,b)=>b.valueUSD-a.valueUSD).slice(0,15).map(p=>{
       const pnl=p.costTotalUSD>0?((p.valueUSD-p.costTotalUSD)/p.costTotalUSD)*100:0;
-      return `${p.ticker}(${p.acct},${assetClass(p)}) ${fmt(p.valueUSD)} PL${pnl>=0?'+':''}${pnl.toFixed(0)}%`;
+      return `${p.ticker}(${p.acct},${mixFor(p.ticker)?'fondo mixto':assetClass(p)}) ${fmt(p.valueUSD)} PL${pnl>=0?'+':''}${pnl.toFixed(0)}%`;
     }).join(' | ');
     const actual=ASSET_CLASSES.map(c=>`${c.label} ${cb.pct(c.key).toFixed(1)}% (meta ${c.target}%)`).join(' | ');
     const plan=dcaPlan().map(c=>`${c.label} $${c.amt} en ${buyVehicle(c.key).ticker}`).join(', ')||'sin huecos';
@@ -732,7 +933,8 @@ ESTRATEGIA: horizonte 15 anos. Metas: Acciones EE.UU. 42%, Internacional 18%, Cr
 ACTUAL: ${actual}
 Plan DCA calculado: ${plan}
 Top posiciones: ${topPos}
-Correlacion interna estimada: ${wc.toFixed(2)}
+Correlacion interna estimada: ${wc.toFixed(2)} (sin efectivo: ${calcCorrInvested().toFixed(2)})
+Nota: la asignacion ya reparte los fondos mixtos por clase (look-through), p. ej. AGF-CA es un fondo balanceado con bonos canadienses; no lo trates como indice de EE.UU.
 Mercado: ${MARKET_CTX}
 
 Tarea: "buy" = una entrada por cada linea del plan DCA, usando esos mismos tickers (ya estan en el portafolio; nunca cripto ni ETFs nuevos que dupliquen exposicion); dca_weekly debe sumar ${DCA_WEEKLY}. "reduce" = hasta 3 posiciones que no encajan con la estrategia o son redundantes, explicando si conviene vender ya o solo dejar de comprar.
@@ -889,7 +1091,8 @@ function renderRetirement(){
     if(!p||p.costTotalUSD<=0) return 'Agrega costo base en Configurar para calcular rendimiento';
     const cagr = p.ticker==='RRSP-WS' ? 3.5 : p.ticker==='AFORE' ? null : null;
     const pnl=((p.valueUSD-p.costTotalUSD)/p.costTotalUSD)*100;
-    const base = `Costo base: ${fmt(p.costTotalUSD)} · P/L total: ${pnl>=0?'+':''}${pnl.toFixed(1)}%`;
+    const fx=p.pnlFxUSD||0;
+    const base = `Costo base: ${fmt(p.costTotalUSD)} · P/L total: ${pnl>=0?'+':''}${pnl.toFixed(1)}% · por tipo de cambio: ${fx>=0?'+':'-'}${fmt(Math.abs(fx))}`;
     if(cagr) return base+` · CAGR estimado ~${cagr}%`;
     return base;
   }
@@ -948,16 +1151,9 @@ function saveManual(){
   const cashMxCost=parseFloat(document.getElementById('val-cash-mx-cost').value)||cashMx;
   const cashCa=parseFloat(document.getElementById('val-cash-ca').value)||0;
   const cashCaCost=parseFloat(document.getElementById('val-cash-ca-cost').value)||cashCa;
-  const cu=1/cad;
-  positions.forEach((p,i)=>{
-    if(p.ticker==='RRSP-SC'){positions[i].priceUSD=rrspSc*cu;positions[i].valueUSD=rrspSc*cu;positions[i].costTotalUSD=rrspScCost*cu;}
-    if(p.ticker==='RRSP-WS'){positions[i].priceUSD=rrspWs*cu;positions[i].valueUSD=rrspWs*cu;positions[i].costTotalUSD=rrspWsCost*cu;}
-    if(p.ticker==='AGF-CA'){positions[i].priceUSD=agf*cu;positions[i].valueUSD=agf*cu;positions[i].costTotalUSD=agfCost*cu;}
-    if(p.ticker==='AFORE'){positions[i].priceUSD=afore*mxn;positions[i].valueUSD=afore*mxn;positions[i].costTotalUSD=aforeCost*mxn;}
-    if(p.ticker==='CASH-MX'){const v=cashMx*mxn;positions[i].priceUSD=v;positions[i].valueUSD=v;positions[i].costTotalUSD=cashMxCost*mxn;}
-    if(p.ticker==='CASH-CA'){const v=cashCa*cu;positions[i].priceUSD=v;positions[i].valueUSD=v;positions[i].costTotalUSD=cashCaCost*cu;}
-  });
   localStorage.setItem('plv2_manual',JSON.stringify({afore,aforeCost,rrspSc,rrspScCost,rrspWs,rrspWsCost,agf,agfCost,cad,mxn,cashMx,cashMxCost,cashCa,cashCaCost}));
+  applyManual(loadManual());
+  revalue();
   document.getElementById('st-manual').textContent='Guardado ✓';
   document.getElementById('st-manual').style.color='var(--green)';
   renderAll();
@@ -1008,8 +1204,11 @@ function buildPortfolioMarkdown(){
   const table=(head,rows)=>['| '+head.join(' | ')+' |','|'+head.map(()=>' --- ').join('|')+'|',
     ...rows.map(r=>'| '+r.map(esc).join(' | ')+' |')].join('\n');
   let manual={}; try{manual=JSON.parse(localStorage.getItem('plv2_manual')||'{}');}catch(e){}
-  let hist=[]; try{hist=JSON.parse(localStorage.getItem('plv2_hist')||'[]');}catch(e){}
+  const {kept:hist,dropped:histDropped}=loadHistory();
   const totalCost=ap.reduce((s,p)=>s+p.costTotalUSD,0), pnl=t-totalCost;
+  const pnlFx=ap.reduce((s,p)=>s+(p.pnlFxUSD||0),0);
+  const clsLabel=p=>mixFor(p.ticker)?'Mezcla (ver sección 6)':ASSET_CLASSES.find(c=>c.key===assetClass(p)).label;
+  const corrB=corrBuckets(), corrT=Object.values(corrB).reduce((s,v)=>s+v,0);
   const byAcct={}, byCat={}, byTicker={};
   ap.forEach(p=>{
     const a=byAcct[p.acct]||(byAcct[p.acct]={v:0,c:0}); a.v+=p.valueUSD; a.c+=p.costTotalUSD;
@@ -1023,7 +1222,8 @@ function buildPortfolioMarkdown(){
   out.push(`# Portafolio de inversión — resumen para análisis`,
     ``,
     `- Generado: ${new Date().toLocaleString('es-MX',{dateStyle:'long',timeStyle:'short'})}`,
-    `- Moneda base: USD · Tipos de cambio usados: 1 USD = ${manual.cad||1.3719} CAD · 1 MXN = ${manual.mxn||0.0488} USD`,
+    `- Moneda base: USD · Tipo de cambio para valor: ${fxSummary().text}`,
+    `- Tipo de cambio histórico para costos (Configurar): USD/CAD ${(manual.cad||1.3719)} · USD/MXN ${(1/(manual.mxn||0.0488)).toFixed(2)}`,
     `- Estado de los datos: ${status}${upd?' · '+upd:''}`,
     ``,
     `> Para el agente: este archivo describe el portafolio y la estrategia de un inversionista individual. El "portafolio activo" excluye las cuentas de retiro, que se listan aparte. Respeta la estrategia y sus reglas; si propones cambiarlas, dilo explícitamente y explica por qué. Revisa la sección "Limitaciones de los datos" antes de sacar conclusiones.`,
@@ -1034,10 +1234,12 @@ function buildPortfolioMarkdown(){
       ['Portafolio activo',usd(t)],
       ['Costo base activo',usd(totalCost)],
       ['P/L activo',`${usd(pnl)} (${pct(totalCost>0?pnl/totalCost*100:0)})`],
+      ['P/L por inversión / por tipo de cambio',`${usd(pnl-pnlFx)} / ${usd(pnlFx)}`],
       ['Cuentas de retiro (aparte)',usd(totalRetiro())],
       ['Total consolidado',usd(t+totalRetiro())],
       ['Posiciones activas',String(ap.length)],
       ['Correlación interna estimada',`${calcCorr().toFixed(2)} (meta < 0.65)`],
+      ['Correlación de lo invertido (sin efectivo)',calcCorrInvested().toFixed(2)],
     ]),
     ``,
     `## 2. Estrategia vigente`,
@@ -1048,6 +1250,8 @@ function buildPortfolioMarkdown(){
     ``,
     table(['Clase','Meta','Actual','Diferencia','Valor USD','Estado','Qué incluye'],
       ASSET_CLASSES.map(c=>{const st=targetStatus(c.key);return [c.label,c.target+'%'+(c.key==='crypto'?` (techo ${ceil}% este año)`:''),pct(st.a),(st.a-c.target>=0?'+':'')+(st.a-c.target).toFixed(2)+' pts',usd(cb.by[c.key]),st.label,c.note];})),
+    ``,
+    `La asignación usa look-through: las posiciones con mezcla (sección 6) se reparten entre clases según lo que traen por dentro.`,
     ``,
     `Banda de rebalanceo: ±${REBAL_BAND} pts. Aportación (DCA): ${usd(DCA_WEEKLY)}/semana (${usd(DCA_WEEKLY*52)}/año).`,
     ``,
@@ -1064,7 +1268,7 @@ function buildPortfolioMarkdown(){
     ``,
     `## 3. Alertas actuales`,
     ``,
-    ...(()=>{const a=strategyAlerts();return a.length?a.map(x=>`- **${x.type==='bad'?'Acción requerida':'Atención'}:** ${x.msg}`):['- Todo en meta.'];})(),
+    ...(()=>{const a=[...dataAlerts(),...strategyAlerts()];return a.length?a.map(x=>`- **${x.type==='bad'?'Acción requerida':'Atención'}:** ${x.msg}`):['- Todo en meta.'];})(),
     ``,
     `## 4. Plan DCA de esta semana`,
     ``,
@@ -1074,55 +1278,64 @@ function buildPortfolioMarkdown(){
     ``,
     `## 5. Posiciones activas`,
     ``,
-    `"Fuente": en vivo = precio de la hoja de Google en la última actualización; estático = valor de respaldo en el código; manual = capturado por el usuario.`,
+    `"Fuente": en vivo = precio de la hoja de Google en la última actualización; estático = valor de respaldo en el código; manual = capturado por el usuario. Precio en USD al tipo de cambio del día; "Precio nativo" en la moneda original. "P/L TC" es la parte del P/L que viene del tipo de cambio.`,
     ``,
-    table(['Ticker','Nombre','Cuenta','Categoría','Clase','Unidades','Precio','Costo/unidad','Costo total','Valor','P/L %','P/L USD','Peso','Fuente'],
+    table(['Ticker','Nombre','Cuenta','Categoría','Clase','Moneda','Unidades','Precio nativo','Precio USD','Costo/unidad USD','Costo total','Valor','P/L %','P/L USD','P/L inversión','P/L TC','Peso','Fuente'],
       [...ap].sort((a,b)=>b.valueUSD-a.valueUSD).map(p=>[p.ticker,p.name,acctLabel(p.acct),catLabel(p.cat),
-        ASSET_CLASSES.find(c=>c.key===assetClass(p)).label,p.units.toFixed(4),px(p.priceUSD),px(p.units>0?p.costTotalUSD/p.units:0),
-        usd(p.costTotalUSD),usd(p.valueUSD),pct(plPct(p)),usd(p.valueUSD-p.costTotalUSD),pct(t>0?p.valueUSD/t*100:0),priceSource(p)])),
+        clsLabel(p),p.ccy,p.units.toFixed(4),(p.priceN||0).toLocaleString('en-US',{maximumFractionDigits:4}),px(p.priceUSD),px(p.units>0?p.costTotalUSD/p.units:0),
+        usd(p.costTotalUSD),usd(p.valueUSD),pct(plPct(p)),usd(p.valueUSD-p.costTotalUSD),usd(p.pnlInvUSD),usd(p.pnlFxUSD),pct(t>0?p.valueUSD/t*100:0),priceSource(p)])),
     ``,
-    `## 6. Tickers en más de una cuenta (combinado)`,
+    `## 6. Mezclas por clase (look-through)`,
+    ``,
+    ...(()=>{const ms=loadMixes();if(!ms.length)return ['Ninguna.'];return ms.flatMap(m=>{
+      const p=ap.find(x=>x.ticker===m.ticker), v=p?ap.filter(x=>x.ticker===m.ticker).reduce((s,x)=>s+x.valueUSD,0):0, sum=mixSum(m);
+      return [`**${m.ticker}** · mezcla del ${m.date||'s/f'} · ${m.source||'sin fuente'} · suma ${sum.toFixed(1)}%${mixValid(m)?' (se normaliza a 100%)':' — NO SE USA: no suma 100%'}`,``,
+        table(['Componente','%','Clase de la estrategia','Valor USD'],m.parts.map(x=>[x.label,(+x.pct).toFixed(1)+'%',COMPONENT_TYPES[x.type]?.label||x.type,usd(sum?v*x.pct/sum:0)])),``];});})(),
+    ``,
+    `## 7. Tickers en más de una cuenta (combinado)`,
     ``,
     (()=>{const multi=Object.values(byTicker).filter(g=>g.accts.length>1);return multi.length?table(['Ticker','Cuentas','Unidades','Costo promedio ponderado','Precio','Valor','P/L %'],
       multi.sort((a,b)=>b.valueUSD-a.valueUSD).map(g=>[g.ticker,g.accts.map(acctLabel).join(', '),g.units.toFixed(4),px(g.units>0?g.costTotalUSD/g.units:0),px(g.priceUSD),usd(g.valueUSD),pct(plPct(g))])):'Ninguno.';})(),
     ``,
-    `## 7. Por cuenta`,
+    `## 8. Por cuenta`,
     ``,
     table(['Cuenta','Valor','Peso','Costo','P/L %'],Object.entries(byAcct).sort((a,b)=>b[1].v-a[1].v)
       .map(([k,a])=>[acctLabel(k),usd(a.v),pct(t>0?a.v/t*100:0),usd(a.c),pct(a.c>0?(a.v-a.c)/a.c*100:0)])),
     ``,
-    `## 8. Por categoría (sector/estilo, informativo)`,
+    `## 9. Por categoría (sector/estilo, informativo)`,
     ``,
     table(['Categoría','Valor','Peso'],Object.entries(byCat).sort((a,b)=>b[1]-a[1]).map(([k,v])=>[catLabel(k),usd(v),pct(t>0?v/t*100:0)])),
     ``,
-    `## 9. Correlación (estimada)`,
+    `## 10. Correlación (estimada)`,
     ``,
-    `Correlación interna estimada: ${calcCorr().toFixed(2)} (meta < 0.65). Es un promedio ponderado de correlaciones fijas por categoría contra el S&P 500; no se calcula con rendimientos históricos.`,
+    `Correlación interna estimada: ${calcCorr().toFixed(2)} (meta < 0.65). Correlación de lo invertido, sin efectivo: ${calcCorrInvested().toFixed(2)}. Es un promedio ponderado de correlaciones fijas por grupo contra el S&P 500, con look-through (la renta fija de una mezcla usa la correlación de bonos, no la de "Index"); no se calcula con rendimientos históricos.`,
     ``,
-    table(['Categoría','Correlación vs S&P 500 (supuesta)','Peso en portafolio'],Object.entries(byCat).sort((a,b)=>b[1]-a[1])
-      .map(([k,v])=>[catLabel(k),(CAT_CORR[k]??0.7).toFixed(2),pct(t>0?v/t*100:0)])),
+    table(['Grupo','Correlación vs S&P 500 (supuesta)','Peso en portafolio'],Object.entries(corrB).sort((a,b)=>b[1]-a[1])
+      .map(([k,v])=>[catLabel(k),(CAT_CORR[k]??0.7).toFixed(2),pct(corrT>0?v/corrT*100:0)])),
     ``,
-    `## 10. Cuentas de retiro (fuera del portafolio activo)`,
+    `## 11. Cuentas de retiro (fuera del portafolio activo)`,
     ``,
-    rp.length?table(['Cuenta','Valor USD','Aportaciones / costo USD','P/L %'],rp.map(p=>[p.name,usd(p.valueUSD),usd(p.costTotalUSD),pct(plPct(p))])):'Sin datos.',
+    rp.length?table(['Cuenta','Moneda','Valor USD','Aportaciones / costo USD','P/L %','P/L TC'],rp.map(p=>[p.name,p.ccy,usd(p.valueUSD),usd(p.costTotalUSD),pct(plPct(p)),usd(p.pnlFxUSD)])):'Sin datos.',
     ``,
-    `## 11. Contexto de mercado (capturado por el usuario)`,
+    `## 12. Contexto de mercado (capturado por el usuario)`,
     ``,
     localStorage.getItem('plv2_market_ctx')||'No capturado.',
     ``,
-    `## 12. Historial del portafolio activo`,
+    `## 13. Historial del portafolio activo`,
     ``,
     hist.length?[
-      `Registros: ${hist.length} · del ${hist[0].date.slice(0,10)} al ${hist[hist.length-1].date.slice(0,10)} · máximo ${usd(Math.max(...hist.map(h=>h.active)))} · mínimo ${usd(Math.min(...hist.map(h=>h.active)))}`,
+      `Registros: ${hist.length}${histDropped?` (${histDropped} ignorados por saltos de más de ${HIST_JUMP*100}% el mismo día)`:''} · del ${hist[0].date.slice(0,10)} al ${hist[hist.length-1].date.slice(0,10)} · máximo ${usd(Math.max(...hist.map(h=>h.active)))} · mínimo ${usd(Math.min(...hist.map(h=>h.active)))}`,
       ``,
       table(['Fecha','Activo','Retiro','Total','P/L activo'],hist.slice(-10).map(h=>[h.date.slice(0,10),usd(h.active),usd(h.retiro),usd(h.total),pct(h.pnlPct)])),
     ].join('\n'):'Sin historial guardado.',
     ``,
-    `## 13. Limitaciones de los datos`,
+    `## 14. Limitaciones de los datos`,
     ``,
     `- Las posiciones con fuente "estático" usan un precio de respaldo que puede estar desactualizado.`,
-    `- Los ETFs listados en Toronto de la cuenta CA (p. ej. ZSP, XSP) podrían venir cotizados en CAD y no en USD; no se ha confirmado la conversión.`,
-    `- AGF-CA se clasifica como acciones de EE.UU. por supuesto; su composición real no está confirmada. TSM se clasifica como internacional.`,
+    `- Tipos de cambio: el VALOR de lo que está en CAD y MXN (ZSP, XSP, AGF-CA, cash, RRSP, AFORE) se convierte con el tipo de cambio del día (hoja con GOOGLEFINANCE o, de respaldo, Frankfurter/BCE; si fallan, el último valor bueno). El COSTO usa el tipo de cambio histórico de Configurar, porque no hay fecha por compra; por eso el P/L se separa en "por inversión" y "por tipo de cambio".`,
+    `- ZSP y XSP se tratan como cotizados en CAD en la hoja (o según la columna "moneda", si existe).`,
+    ...loadMixes().filter(mixValid).map(m=>`- La mezcla de ${m.ticker} viene de: ${m.source||'sin fuente'}, con fecha ${m.date||'s/f'}. Se actualiza a mano cada trimestre.`),
+    `- TSM se clasifica como internacional; VNQ (REITs de EE.UU.) como bienes raíces dentro de Acciones EE.UU.`,
     `- COIN y BMNR son acciones, pero cuentan como exposición cripto.`,
     `- Las correlaciones son estimaciones fijas por categoría, no calculadas.`,
     `- El P/L es simple contra costo; no es TIR ni considera la fecha de cada aportación.`,
@@ -1160,14 +1373,27 @@ function saveSnapshot(){
     localStorage.setItem('plv2_hist',JSON.stringify(hist));
   }
 }
+// Ignora registros que saltan más de 5% contra el registro anterior del mismo día (fallas de precio).
+// No borra nada: solo se excluyen al mostrar y exportar.
+const HIST_JUMP=0.05;
+function cleanHistory(hist){
+  const kept=[]; let dropped=0;
+  const day=h=>new Date(h.date).toLocaleDateString('en-CA');
+  hist.forEach(h=>{
+    const prev=kept[kept.length-1];
+    if(prev&&day(prev)===day(h)&&prev.active>0&&Math.abs(h.active-prev.active)/prev.active>HIST_JUMP){dropped++;return;}
+    kept.push(h);
+  });
+  return {kept,dropped};
+}
+function loadHistory(){try{return cleanHistory(JSON.parse(localStorage.getItem('plv2_hist')||'[]'));}catch(e){return {kept:[],dropped:0};}}
 function clearHistory(){
   if(!confirm('¿Borrar todo el historial?'))return;
   localStorage.removeItem('plv2_hist');
   renderHistorial();
 }
 function renderHistorial(){
-  let hist=[];
-  try{hist=JSON.parse(localStorage.getItem('plv2_hist')||'[]');}catch(e){}
+  const {kept:hist,dropped}=loadHistory();
 
   if(hist.length===0){
     document.getElementById('histCards').innerHTML='<div class="card" style="grid-column:1/-1;"><div class="card-lbl">Sin historial</div><div class="card-val" style="font-size:14px;font-weight:400;color:var(--muted);">El historial se guarda automáticamente cada vez que haces ↻ Actualizar. Regresa en unos días para ver la evolución.</div></div>';
@@ -1185,7 +1411,7 @@ function renderHistorial(){
   document.getElementById('histCards').innerHTML=`
     <div class="card"><div class="card-lbl">Valor actual activo</div><div class="card-val">${fmt(last.active)}</div><div class="card-sub">Último registro</div></div>
     <div class="card"><div class="card-lbl">Cambio total registrado</div><div class="card-val ${change>=0?'up':'down'}">${change>=0?'+':''}${fmt(change)}</div><div class="card-sub ${change>=0?'up':'down'}">${changePct>=0?'+':''}${changePct.toFixed(1)}% desde primer registro</div></div>
-    <div class="card"><div class="card-lbl">Máximo registrado</div><div class="card-val">${fmt(maxVal)}</div><div class="card-sub">Mínimo: ${fmt(minVal)}</div></div>`;
+    <div class="card"><div class="card-lbl">Máximo registrado</div><div class="card-val">${fmt(maxVal)}</div><div class="card-sub">Mínimo: ${fmt(minVal)}${dropped?` · ${dropped} registro${dropped>1?'s':''} ignorado${dropped>1?'s':''} por saltos de más de ${HIST_JUMP*100}% el mismo día`:''}</div></div>`;
 
   const labels=hist.map(h=>{
     const d=new Date(h.date);
@@ -1227,6 +1453,78 @@ function saveMarketCtx(){
 }
 
 function gotoSetup(){sv('setup');}
+
+// ─── CONFIGURAR: tipos de cambio ───
+function toggleFxFixed(fixed){
+  localStorage.setItem(FX_MODE_KEY,fixed?'fixed':'live');
+  if(!fixed&&!FX.CAD&&!FX.MXN) updateFx(null).then(()=>{revalue();renderFxStatus();renderAll();});
+  revalue(); renderFxStatus(); renderAll();
+}
+function renderFxStatus(){
+  document.getElementById('fxFixed').checked=fxMode()==='fixed';
+  document.getElementById('fxStatus').textContent='En uso: '+fxSummary().text;
+}
+
+// ─── CONFIGURAR: editor de mezclas ───
+let mixDraft=[];
+const escAttr=v=>String(v??'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;');
+function renderMixEditor(){
+  const typeOpts=sel=>Object.entries(COMPONENT_TYPES).map(([k,t])=>`<option value="${k}"${k===sel?' selected':''}>${t.label}</option>`).join('');
+  const inp='class="url-input" style="padding:6px 8px;font-size:12px;width:100%;display:block;margin-top:3px;"';
+  document.getElementById('mixEditor').innerHTML=mixDraft.length?mixDraft.map((m,mi)=>`
+    <div class="alloc-sec" style="margin-bottom:10px;">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">
+        <label style="font-size:11px;font-family:var(--mono);color:var(--muted);">Ticker<input ${inp} value="${escAttr(m.ticker)}" oninput="mixEdit(${mi},null,'ticker',this.value)"></label>
+        <label style="font-size:11px;font-family:var(--mono);color:var(--muted);">Fecha de la mezcla<input ${inp} type="date" value="${escAttr(m.date)}" oninput="mixEdit(${mi},null,'date',this.value)"></label>
+        <label style="grid-column:1/-1;font-size:11px;font-family:var(--mono);color:var(--muted);">Fuente<input ${inp} value="${escAttr(m.source)}" oninput="mixEdit(${mi},null,'source',this.value)"></label>
+      </div>
+      ${m.parts.map((x,pi)=>`<div style="display:grid;grid-template-columns:minmax(0,2fr) 80px minmax(0,1.5fr) auto;gap:6px;margin-bottom:6px;">
+        <input ${inp} placeholder="Componente" value="${escAttr(x.label)}" oninput="mixEdit(${mi},${pi},'label',this.value)">
+        <input ${inp} type="number" step="0.1" placeholder="%" value="${escAttr(x.pct)}" oninput="mixEdit(${mi},${pi},'pct',this.value)">
+        <select ${inp} onchange="mixEdit(${mi},${pi},'type',this.value)">${typeOpts(x.type)}</select>
+        <button class="btn btn-sm" onclick="mixRemovePart(${mi},${pi})" title="Quitar componente">×</button>
+      </div>`).join('')}
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-top:8px;">
+        <span id="mixSum-${mi}" class="mono"></span>
+        <span style="display:flex;gap:6px;"><button class="btn btn-sm" onclick="mixAddPart(${mi})">+ Componente</button><button class="btn btn-sm" onclick="mixRemove(${mi})">Quitar mezcla</button></span>
+      </div>
+    </div>`).join(''):'<div style="font-size:12px;color:var(--muted);">Sin mezclas: cada posición cuenta en su clase única.</div>';
+  mixDraft.forEach((_,mi)=>renderMixSum(mi));
+}
+function renderMixSum(mi){
+  const m=mixDraft[mi], sum=mixSum(m), ok=mixValid(m), el=document.getElementById('mixSum-'+mi);
+  if(!el)return;
+  const by={}; m.parts.forEach(x=>{const c=COMPONENT_TYPES[x.type]?.cls; if(c)by[c]=(by[c]||0)+(parseFloat(x.pct)||0);});
+  const split=ASSET_CLASSES.filter(c=>by[c.key]).map(c=>`${c.label} ${(by[c.key]/(sum||1)*100).toFixed(1)}%`).join(' · ');
+  el.className='mono '+(ok?'s-ok':'s-bad'); el.style.fontSize='12px';
+  el.textContent=`Suma ${sum.toFixed(1)}%${ok?'':' · no suma 100%, no se usará'}${ok&&split?' → '+split:''}`;
+}
+function mixEdit(mi,pi,field,val){
+  const target=pi==null?mixDraft[mi]:mixDraft[mi].parts[pi];
+  target[field]=field==='pct'?val:(field==='ticker'?val.trim().toUpperCase():val);
+  renderMixSum(mi);
+}
+function mixAdd(){mixDraft.push({ticker:'',date:new Date().toISOString().slice(0,10),source:'',parts:[{label:'',pct:'',type:'us'}]});renderMixEditor();}
+function mixAddPart(mi){mixDraft[mi].parts.push({label:'',pct:'',type:'us'});renderMixEditor();}
+function mixRemovePart(mi,pi){mixDraft[mi].parts.splice(pi,1);renderMixEditor();}
+function mixRemove(mi){mixDraft.splice(mi,1);renderMixEditor();}
+function saveMixes(){
+  const clean=mixDraft.filter(m=>m.ticker).map(m=>({...m,parts:m.parts.filter(x=>x.label||x.pct!=='').map(x=>({...x,pct:parseFloat(x.pct)||0}))}));
+  localStorage.setItem(MIX_KEY,JSON.stringify(clean));
+  mixDraft=JSON.parse(JSON.stringify(clean));
+  const bad=clean.filter(m=>!mixValid(m)).map(m=>m.ticker);
+  const st=document.getElementById('st-mix');
+  st.textContent=bad.length?`Guardado. No se usarán (no suman 100%): ${bad.join(', ')}`:'Guardado ✓';
+  st.style.color=bad.length?'var(--amber)':'var(--green)';
+  renderMixEditor(); renderAll();
+}
+function resetMixes(){
+  if(!confirm('¿Restaurar la mezcla oficial de AGF (31 oct 2026)? Se reemplazan las mezclas guardadas.'))return;
+  localStorage.removeItem(MIX_KEY);
+  mixDraft=JSON.parse(JSON.stringify(loadMixes()));
+  document.getElementById('st-mix').textContent='Restaurada ✓';
+  renderMixEditor(); renderAll();
+}
 
 // ─── NAV ───
 // ─── NAVEGACIÓN (dos niveles) ───
@@ -1276,23 +1574,14 @@ function sv(view){
     if(cryptoUrl)document.getElementById('urlCrypto').value=cryptoUrl;
     const mctx=localStorage.getItem('plv2_market_ctx');
     if(mctx)document.getElementById('val-market-ctx').value=mctx;
+    renderFxStatus();
+    mixDraft=JSON.parse(JSON.stringify(loadMixes()));
+    renderMixEditor();
   }
 }
 
-// ─── LOAD SAVED MANUAL ───
-const savedM=localStorage.getItem('plv2_manual');
-if(savedM){try{
-  const d=JSON.parse(savedM);
-  const cu=1/(d.cad||1.3719);
-  positions.forEach((p,i)=>{
-    if(p.ticker==='RRSP-SC'){positions[i].priceUSD=(d.rrspSc||22623)*cu;positions[i].valueUSD=positions[i].priceUSD;positions[i].costTotalUSD=(d.rrspScCost||d.rrspSc||22623)*cu;}
-    if(p.ticker==='RRSP-WS'){positions[i].priceUSD=(d.rrspWs||29499)*cu;positions[i].valueUSD=positions[i].priceUSD;positions[i].costTotalUSD=(d.rrspWsCost||26066)*cu;}
-    if(p.ticker==='AGF-CA'){positions[i].priceUSD=(d.agf||31588)*cu;positions[i].valueUSD=positions[i].priceUSD;positions[i].costTotalUSD=(d.agfCost||24700)*cu;}
-    if(p.ticker==='AFORE'){positions[i].priceUSD=(d.afore||1385366)*(d.mxn||0.0488);positions[i].valueUSD=positions[i].priceUSD;positions[i].costTotalUSD=(d.aforeCost||d.afore||1385366)*(d.mxn||0.0488);}
-    if(p.ticker==='CASH-MX'){const v=(d.cashMx||0)*(d.mxn||0.0488);positions[i].priceUSD=v;positions[i].valueUSD=v;positions[i].costTotalUSD=(d.cashMxCost||d.cashMx||0)*(d.mxn||0.0488);}
-    if(p.ticker==='CASH-CA'){const v=(d.cashCa||0)*cu;positions[i].priceUSD=v;positions[i].valueUSD=v;positions[i].costTotalUSD=(d.cashCaCost||d.cashCa||0)*cu;}
-  });
-}catch(e){}}
+// ─── CARGA INICIAL ───
+resetPositions();
 
 // ─── INIT (se ejecuta solo despues de autenticar) ───
 let _appStarted=false;
