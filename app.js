@@ -539,8 +539,7 @@ function updateHeader(){
 // ─── OVERVIEW ───
 function renderOverview(){
   const ap=activePos(), t=totalActive();
-  const byCat={};
-  ap.forEach(p=>{byCat[p.cat]=(byCat[p.cat]||0)+p.valueUSD;});
+  const byCat=catBuckets();
   const totalCost=ap.reduce((s,p)=>s+p.costTotalUSD,0);
   const pnlAmt=t-totalCost, pnlPct=totalCost>0?(pnlAmt/totalCost)*100:0;
   const cb=classBreakdown();
@@ -730,13 +729,12 @@ function renderAllocation(){
       <div class="ad mono ${st}" style="font-size:12px;">${diff==null?'':(diff>0?'+':'')+diff.toFixed(1)+'%'}</div>
     </div>`;
   };
-  const byCat={};
-  ap.forEach(p=>{byCat[p.cat]=(byCat[p.cat]||0)+p.valueUSD;});
+  const byCat=catBuckets();
   document.getElementById('allocBars').innerHTML=STATUS_LEGEND+
     ASSET_CLASSES.map(c=>bar(c.label,c.note,cb.pct(c.key),cb.by[c.key],c.color,c.target,
       c.key==='crypto'?`<div class="btg" style="left:${ceil}%;background:var(--red);" title="Techo ${ceil}%"></div>`:'',targetStatus(c.key).level)).join('')+
     mixNote()+
-    `<div class="slbl" style="margin:18px 0 10px;">Detalle por categoría — informativo, sin meta</div>`+
+    `<div class="slbl" style="margin:18px 0 10px;">Detalle por categoría — informativo, sin meta, con look-through de mezclas</div>`+
     Object.entries(byCat).sort((a,b)=>b[1]-a[1]).map(([k,v])=>bar(catLabel(k),'',v/t*100,v,'#9a9a90',null)).join('');
   document.getElementById('allocAlerts').innerHTML=[...dataAlerts(),...strategyAlerts()].map(a=>`<div class="${a.type}">${a.msg}</div>`).join('');
   renderCompare();
@@ -799,8 +797,9 @@ function renderCompare(){
 // ─── CORRELATION (active only) ───
 // Correlación supuesta de cada grupo contra el S&P 500. Renta fija (bonos) y efectivo son las más bajas.
 const CAT_CORR={index:0.98,tech:0.87,crypto:0.52,intl:0.82,defense:0.68,hedge:0.05,bio:0.55,cash:0.01,realestate:0.75,bonds:0.15};
-// Valor por grupo de correlación: la categoría de la posición o, si tiene mezcla, el tipo de cada componente.
-function corrBuckets(scn,excludeCash){
+// Valor por categoría con look-through: la categoría de la posición o, si tiene mezcla, la de cada componente
+// (p. ej. AGF reparte su parte canadiense a Internacional y sus bonos a Renta fija). Lo usan todas las vistas por categoría.
+function catBuckets(scn,excludeCash){
   const by={};
   activePos().forEach(p=>{
     const v=posValue(p,scn);
@@ -813,15 +812,14 @@ function corrBuckets(scn,excludeCash){
   return by;
 }
 function calcCorr(scn,excludeCash){
-  const by=corrBuckets(scn,excludeCash), t=Object.values(by).reduce((s,v)=>s+v,0);
+  const by=catBuckets(scn,excludeCash), t=Object.values(by).reduce((s,v)=>s+v,0);
   return t>0?Object.entries(by).reduce((s,[k,v])=>s+v/t*(CAT_CORR[k]??0.7),0):0;
 }
 // Sin efectivo: el cash (corr ~0.01) baja el promedio y hace ver la cartera menos correlacionada de lo que está.
 const calcCorrInvested=scn=>calcCorr(scn,true);
 function renderCorrelation(){
   const ap=activePos(), t=totalActive();
-  const byCat={};
-  ap.forEach(p=>{byCat[p.cat]=(byCat[p.cat]||0)+p.valueUSD;});
+  const byCat=catBuckets();
   const cb=classBreakdown(), wc=calcCorr(), wi=calcCorrInvested(), hp=cb.pct('gold'), cp=cb.pct('crypto');
   const corrCol=v=>v>=0.80?'var(--red)':v>=0.65?'var(--amber)':'var(--green)';
   const corrTxt=v=>v>=0.80?'Muy alta':v>=0.65?'Alta':'Moderada';
@@ -848,7 +846,7 @@ function renderCorrelation(){
     scales:{r:{min:0,max:100,ticks:{display:false},pointLabels:{font:{size:11},color:'#78776e'},grid:{color:'rgba(0,0,0,.05)'},angleLines:{color:'rgba(0,0,0,.05)'}}}}
   });
   // Con look-through: AGF-CA suma su parte de bonos y efectivo a esos grupos, no a "Index".
-  const buckets=corrBuckets(), bt=Object.values(buckets).reduce((s,v)=>s+v,0);
+  const buckets=catBuckets(), bt=Object.values(buckets).reduce((s,v)=>s+v,0);
   const corrColor=c=>c>=0.8?'#b53a2f':c>=0.5?'#8a5f0a':'#1a6b3a';
   const risks=Object.entries(buckets).map(([k,v])=>({l:catLabel(k),c:CAT_CORR[k]??0.7,col:corrColor(CAT_CORR[k]??0.7),w:bt>0?v/bt*100:0}))
     .sort((a,b)=>b.c-a.c);
@@ -1208,11 +1206,10 @@ function buildPortfolioMarkdown(){
   const totalCost=ap.reduce((s,p)=>s+p.costTotalUSD,0), pnl=t-totalCost;
   const pnlFx=ap.reduce((s,p)=>s+(p.pnlFxUSD||0),0);
   const clsLabel=p=>mixFor(p.ticker)?'Mezcla (ver sección 6)':ASSET_CLASSES.find(c=>c.key===assetClass(p)).label;
-  const corrB=corrBuckets(), corrT=Object.values(corrB).reduce((s,v)=>s+v,0);
-  const byAcct={}, byCat={}, byTicker={};
+  const corrB=catBuckets(), corrT=Object.values(corrB).reduce((s,v)=>s+v,0);
+  const byAcct={}, byCat=catBuckets(), byTicker={};
   ap.forEach(p=>{
     const a=byAcct[p.acct]||(byAcct[p.acct]={v:0,c:0}); a.v+=p.valueUSD; a.c+=p.costTotalUSD;
-    byCat[p.cat]=(byCat[p.cat]||0)+p.valueUSD;
     const g=byTicker[p.ticker]||(byTicker[p.ticker]={ticker:p.ticker,accts:[],units:0,costTotalUSD:0,valueUSD:0,priceUSD:p.priceUSD});
     g.accts.push(p.acct); g.units+=p.units; g.costTotalUSD+=p.costTotalUSD; g.valueUSD+=p.valueUSD;
   });
@@ -1302,7 +1299,7 @@ function buildPortfolioMarkdown(){
     table(['Cuenta','Valor','Peso','Costo','P/L %'],Object.entries(byAcct).sort((a,b)=>b[1].v-a[1].v)
       .map(([k,a])=>[acctLabel(k),usd(a.v),pct(t>0?a.v/t*100:0),usd(a.c),pct(a.c>0?(a.v-a.c)/a.c*100:0)])),
     ``,
-    `## 9. Por categoría (sector/estilo, informativo)`,
+    `## 9. Por categoría (sector/estilo, informativo, con look-through de mezclas)`,
     ``,
     table(['Categoría','Valor','Peso'],Object.entries(byCat).sort((a,b)=>b[1]-a[1]).map(([k,v])=>[catLabel(k),usd(v),pct(t>0?v/t*100:0)])),
     ``,
