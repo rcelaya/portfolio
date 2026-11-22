@@ -303,11 +303,17 @@ function resetPositions(){
 // ─── ESTRATEGIA (opción A) ───
 // Fuente única de metas y reglas: la usan Estrategia, Asignación, Plan DCA y el prompt de IA.
 const STRATEGY_DATE='13 nov 2026';
+// Cambios a la estrategia, del más reciente al más antiguo. Se muestran en Estrategia y en el export.
+const STRATEGY_CHANGES=[
+  {date:'21 nov 2026',text:'Acciones EE.UU. 42% → 45% e Internacional 18% → 15%, para dar más peso al motor de crecimiento (EE.UU.) sin dejar de diversificar. Se adopta el plan de despliegue de $30,000 en 3 meses y la meta de correlación pasa a medirse sin efectivo. Acordado con el portfolio manager.'},
+];
+// Meta de correlación: se mide con la correlación de lo invertido (sin efectivo).
+const CORR_TARGET=0.65;
 const STRATEGY_THESIS='Construir patrimonio a 15 años con un núcleo de acciones globales, reduciendo gradualmente la concentración en cripto sin vender en pérdida. BTC se mantiene como reserva de valor de largo plazo.';
 const ASSET_CLASSES=[
-  {key:'us',    label:'Acciones EE.UU.',          target:42, color:'#1a50a0', note:'Índices + acciones individuales de EE.UU.'},
-  {key:'intl',  label:'Acciones internacionales', target:18, color:'#5a3fa0', note:'Desarrollados y emergentes fuera de EE.UU.'},
-  {key:'crypto',label:'Cripto',                   target:25, color:'#b53a2f', note:'BTC como reserva de valor; incluye COIN y BMNR'},
+  {key:'us',    label:'Acciones EE.UU.',          target:45, color:'#1a50a0', note:'Motor de crecimiento: índices + acciones individuales de EE.UU.'},
+  {key:'intl',  label:'Acciones internacionales', target:15, color:'#5a3fa0', note:'Desarrollados y emergentes fuera de EE.UU.'},
+  {key:'crypto',label:'Cripto',                   target:25, color:'#b53a2f', note:'Apuesta de convicción: BTC como reserva de valor; incluye COIN y BMNR'},
   {key:'gold',  label:'Oro',                      target:5,  color:'#854f0b', note:'Cobertura ante caídas e inflación'},
   {key:'fixed', label:'Renta fija / Cash',        target:10, color:'#6a7080', note:'Colchón de liquidez; MXN rinde 6.5% fijo'},
 ];
@@ -363,6 +369,80 @@ const CRYPTO_CEILING={2026:45,2027:40,2028:36,2029:32,2030:28};
 const cryptoCeiling=()=>CRYPTO_CEILING[new Date().getFullYear()]??25;
 const REBAL_BAND=3;
 const DCA_WEEKLY=300;
+const FIXED_MAX=15;
+
+// ─── PLAN DE DESPLIEGUE (acordado el 21 nov 2026 con el portfolio manager) ───
+// $10,000/mes por 3 meses saliendo del efectivo. Mientras está vigente, reemplaza al DCA semanal.
+const DEPLOY_COND={
+  sec_vea:       {label:'Va a VEA si hay otra mala noticia de la SEC'},
+  below_cost:    {label:'Solo si ese día cotiza debajo de su costo promedio; si no, va a VTI',checkCost:true},
+  below_cost_sec:{label:'Solo si cotiza debajo de su costo promedio; si no, o si hay más malas noticias de la SEC, va a VTI',checkCost:true},
+  reserve:       {label:'Reserva: esa semana o justo después'},
+};
+const di=(t,amt,cond)=>({t,amt,acct:t==='GLD'?'BITSO':'MX',cond:cond||null});
+const DEPLOY={
+  agreed:'21 nov 2026', monthly:10000, start:'2026-11-23', end:'2027-02-12',
+  pending:'Ejecutar los meses 2 y 3 en la cuenta CA con CASH-CA (~$29,400) en lugar de MX.',
+  classOf:{VEA:'intl',VTI:'us',GOOG:'us',META:'us',NVDA:'us','BRK.B':'us',GLD:'gold'},
+  months:[
+    {n:1,range:'23 nov – 18 dic 2026',note:'Fijado; no se redistribuye.',weeks:[
+      {id:'1-1',from:'2026-11-23',to:'2026-11-27',note:'Jue 26 no hay bolsa (Thanksgiving).',items:[di('GOOG',500),di('META',300),di('VEA',300),di('BRK.B',300),di('VTI',150),di('GLD',250)]},
+      {id:'1-2',from:'2026-11-30',to:'2026-12-04',items:[di('GOOG',500),di('META',350),di('VEA',800),di('VTI',150),di('GLD',550)]},
+      {id:'1-3',from:'2026-12-07',to:'2026-12-11',items:[di('GOOG',500),di('META',350),di('NVDA',250,'sec_vea'),di('VEA',800),di('VTI',150),di('GLD',550)]},
+      {id:'1-4',from:'2026-12-14',to:'2026-12-18',items:[di('NVDA',250,'sec_vea'),di('VEA',700),di('VTI',150),di('GLD',150),di('VEA',2000,'reserve')]},
+    ]},
+    {n:2,range:'21 dic 2026 – 15 ene 2027',note:'Todo en MX salvo GLD en Bitso.',weeks:[
+      {id:'2-1',from:'2026-12-21',to:'2026-12-24',note:'Vie 25 no hay bolsa.',items:[di('VEA',750),di('VTI',1000),di('GOOG',200,'below_cost'),di('META',150,'below_cost'),di('GLD',400)]},
+      {id:'2-2',from:'2026-12-28',to:'2026-12-31',note:'Vie 1 ene no hay bolsa.',items:[di('VEA',750),di('VTI',1000),di('GOOG',200,'below_cost'),di('META',150,'below_cost'),di('GLD',400)]},
+      {id:'2-3',from:'2027-01-04',to:'2027-01-08',items:[di('VEA',750),di('VTI',950),di('GOOG',200,'below_cost'),di('META',100,'below_cost'),di('NVDA',150,'below_cost_sec'),di('GLD',350)]},
+      {id:'2-4',from:'2027-01-11',to:'2027-01-15',items:[di('VEA',750),di('VTI',1050),di('GOOG',150,'below_cost'),di('META',100,'below_cost'),di('NVDA',100,'below_cost_sec'),di('GLD',350)]},
+    ]},
+    {n:3,range:'19 ene – 12 feb 2027',note:'Todo en MX salvo GLD en Bitso.',weeks:[
+      {id:'3-1',from:'2027-01-19',to:'2027-01-22',note:'Lun 18 no hay bolsa (MLK).',items:[di('VEA',750),di('VTI',1200),di('GOOG',150,'below_cost'),di('GLD',400)]},
+      {id:'3-2',from:'2027-01-25',to:'2027-01-29',items:[di('VEA',750),di('VTI',1200),di('GOOG',150,'below_cost'),di('GLD',400)]},
+      {id:'3-3',from:'2027-02-01',to:'2027-02-05',items:[di('VEA',750),di('VTI',1300),di('GOOG',100,'below_cost'),di('GLD',350)]},
+      {id:'3-4',from:'2027-02-08',to:'2027-02-12',items:[di('VEA',750),di('VTI',1300),di('GOOG',100,'below_cost'),di('GLD',350)]},
+    ]},
+  ],
+};
+const DEPLOY_STATUS_KEY='plv2_deploy_status';
+const DEPLOY_STATES={pendiente:'Pendiente',programada:'Programada',ejecutada:'Ejecutada'};
+function deployStatus(){
+  const def={'1-1':'programada'};
+  try{return {...def,...JSON.parse(localStorage.getItem(DEPLOY_STATUS_KEY)||'{}')};}catch(e){return def;}
+}
+function setDeployStatus(id,v){const s=deployStatus();s[id]=v;localStorage.setItem(DEPLOY_STATUS_KEY,JSON.stringify(s));renderAll();}
+const deployWeeks=()=>DEPLOY.months.flatMap(m=>m.weeks.map((w,i)=>({...w,n:i+1,month:m})));
+const weekTotal=w=>w.items.reduce((s,x)=>s+x.amt,0);
+const todayISO=()=>new Date().toLocaleDateString('en-CA');
+const deployActive=()=>todayISO()<=DEPLOY.end;
+// Semana en curso o, si no hay, la siguiente.
+const currentDeployWeek=()=>deployWeeks().find(w=>w.to>=todayISO())||null;
+const fmtRange=w=>{const o={day:'numeric',month:'short'},a=new Date(w.from+'T12:00'),b=new Date(w.to+'T12:00');return a.toLocaleDateString('es-MX',o)+' – '+b.toLocaleDateString('es-MX',o);};
+// Montos por ticker de los meses 1..k (caso base, sin aplicar las condiciones).
+function deployTickerTotals(k){
+  const by={};
+  DEPLOY.months.filter(m=>m.n<=k).forEach(m=>m.weeks.forEach(w=>w.items.forEach(x=>{by[x.t]=(by[x.t]||0)+x.amt;})));
+  return by;
+}
+// Asignación proyectada al terminar el mes k: el dinero sale del efectivo y los precios se mantienen.
+// Las semanas marcadas como ejecutadas no se suman, porque la hoja ya las refleja.
+function projectedBreakdown(k){
+  const cb=classBreakdown(), by={...cb.by}, st=deployStatus();
+  DEPLOY.months.filter(m=>m.n<=k).forEach(m=>m.weeks.forEach(w=>{
+    if(st[w.id]==='ejecutada')return;
+    w.items.forEach(x=>{by[DEPLOY.classOf[x.t]]+=x.amt; by.fixed-=x.amt;});
+  }));
+  return {t:cb.t,by,pct:key=>cb.t>0?by[key]/cb.t*100:0};
+}
+// Precio de hoy contra el costo promedio ponderado de todas las cuentas.
+function costCheck(t){
+  const ps=activePos().filter(p=>p.ticker===t&&p.units>0);
+  const u=ps.reduce((s,p)=>s+p.units,0);
+  if(!u)return null;
+  const avg=ps.reduce((s,p)=>s+p.costTotalUSD,0)/u, price=ps[0].priceUSD;
+  return {below:price<avg,price,avg};
+}
 
 function assetClass(p){
   if(CLASS_OVERRIDES[p.ticker])return CLASS_OVERRIDES[p.ticker];
@@ -392,8 +472,11 @@ function classBreakdown(scn){
   return {t,by,pct:k=>t>0?by[k]/t*100:0};
 }
 // Reparte el DCA semanal entre las clases por debajo de su meta, proporcional al hueco en USD. Nunca a cripto.
-function dcaPlan(scn){
-  const {t,by}=classBreakdown(scn);
+function dcaPlan(scn){return dcaPlanFrom(classBreakdown(scn));}
+// Mientras el despliegue está vigente, el DCA aplica después: se calcula sobre la asignación proyectada al final.
+const dcaPost=()=>deployActive()?dcaPlanFrom(projectedBreakdown(3)):dcaPlan();
+function dcaPlanFrom(cb){
+  const {t,by}=cb;
   const gaps=ASSET_CLASSES.filter(c=>c.key!=='crypto')
     .map(c=>({...c,gap:Math.max(0,c.target/100*t-by[c.key])})).filter(c=>c.gap>0);
   const sum=gaps.reduce((s,c)=>s+c.gap,0);
@@ -428,8 +511,10 @@ function strategyAlerts(scn){
       ?`Cripto en ${a}% rebasa el techo de ${ceil}% para ${new Date().getFullYear()}. Vende ~${fmt(cryptoExcessUSD(scn))} de BTC (con ganancia) y reinviértelo en los huecos.`
       :`Cripto en ${a}% (techo ${ceil}%, meta ${c.target}%). No agregues más; se diluye con las aportaciones en ~${yearsToCryptoTarget(scn).toFixed(1)} años.`;
     else msg=s.a<c.target
-      ?`${c.label} en ${a}% (meta ${c.target}%). El Plan DCA lo prioriza.`
-      :`${c.label} en ${a}% (meta ${c.target}%). No compres más hasta que regrese a la banda de ±${REBAL_BAND} pts.`;
+      ?`${c.label} en ${a}% (meta ${c.target}%). El plan de compras lo prioriza.`
+      :c.key==='fixed'
+        ?`${c.label} en ${a}% (meta ${c.target}%, máximo ${FIXED_MAX}%). ${deployActive()&&scn!=='before'?'El plan de despliegue lo está bajando: sale del efectivo.':'Despliega el excedente hacia los huecos.'}`
+        :`${c.label} en ${a}% (meta ${c.target}%). No compres más hasta que regrese a la banda de ±${REBAL_BAND} pts.`;
     out.push({type:s.level,msg});
   });
   return out;
@@ -523,6 +608,7 @@ function renderAll(){
   const id=active.id.replace('view-','');
   if(id==='overview')renderOverview();
   if(id==='strategy')renderStrategy();
+  if(id==='deploy')renderDeploy();
   if(id==='positions')renderPositions();
   if(id==='allocation')renderAllocation();
   if(id==='correlation')renderCorrelation();
@@ -555,7 +641,7 @@ function renderOverview(){
   document.getElementById('overviewCards').innerHTML=`
     <div class="card"><div class="card-lbl">Portafolio activo</div><div class="card-val">${fmt(t)}</div><div class="card-sub">MX+CA+Cripto+Bitso+AGF</div></div>
     <div class="card"><div class="card-lbl">P/L total activo</div><div class="card-val ${pnlPct>=0?'up':'down'}">${fmtPct(pnlPct)}</div><div class="card-sub ${pnlPct>=0?'up':'down'}">${sgn(pnlAmt)}</div><div class="card-sub">inversión ${sgn(pnlInv)} · tipo de cambio ${sgn(pnlFx)}</div></div>
-    <div class="card"><div class="card-lbl">Correlación interna</div><div class="card-val ${wCorr>=0.80?'down':''}">${wCorr.toFixed(2)}</div><div class="card-sub">sin efectivo ${wInv.toFixed(2)} · meta &lt; 0.65</div></div>
+    <div class="card"><div class="card-lbl">Correlación de lo invertido</div><div class="card-val ${wInv>=0.80?'down':wInv>=CORR_TARGET?'s-warn':'s-ok'}">${wInv.toFixed(2)}</div><div class="card-sub">sin efectivo · meta &lt; ${CORR_TARGET} · con efectivo ${wCorr.toFixed(2)}</div></div>
     <div class="card"><div class="card-lbl">Cripto</div><div class="card-val s-${targetStatus('crypto').level}">${cryptoPct.toFixed(1)}%</div><div class="card-sub">techo ${ceil}% · meta 25%</div></div>
     <div class="card"><div class="card-lbl">Oro</div><div class="card-val s-${targetStatus('gold').level}">${goldPct.toFixed(1)}%</div><div class="card-sub">meta 5%</div></div>`;
 
@@ -604,15 +690,21 @@ function renderOverview(){
 
   // Alerts — active only
   const alerts=[...dataAlerts(),...strategyAlerts()];
-  if(wCorr>0.80)alerts.push({type:'warn',msg:`Correlación interna de ${wCorr.toFixed(2)} — muy alta. El Plan DCA prioriza las clases que la bajan.`});
-  const plan=dcaPlan();
+  if(wInv>=CORR_TARGET)alerts.push({type:'warn',msg:`Correlación de lo invertido en ${wInv.toFixed(2)} (meta < ${CORR_TARGET}, sin efectivo). El oro y lo internacional del plan de compras la bajan.`});
+  const cur=deployActive()?currentDeployWeek():null, plan=dcaPlan();
   document.getElementById('weekAction').innerHTML=`
     <div class="week-box">
-      <div class="slbl" style="margin-bottom:6px;">Compras de esta semana · ${fmt(DCA_WEEKLY)}</div>
+      ${cur?`<div class="slbl" style="margin-bottom:6px;">${cur.from<=todayISO()?'Compras de esta semana':'Próximas compras'} · Despliegue mes ${cur.month.n}, semana ${cur.n} · ${fmtRange(cur)} · ${fmt(weekTotal(cur))}</div>
+      ${cur.items.map(x=>{const c=DEPLOY_COND[x.cond],chk=c?.checkCost?costCheck(x.t):null;
+        return `<div class="week-row"><span><span class="tk">${x.t}</span> <span style="font-size:11px;color:var(--muted);">${acctLabel(x.acct)}${c?' · * '+c.label:''}${chk?` · hoy ${chk.below?'debajo de su costo: se compra':'arriba de su costo: va a VTI'}`:''}</span></span><span class="mono up">${fmt(x.amt)}</span></div>`;}).join('')}
+      ${cur.note?`<div style="font-size:11px;color:var(--amber);margin-top:6px;">${cur.note}</div>`:''}
+      <div style="font-size:11px;color:var(--muted);margin-top:6px;">Estado: ${DEPLOY_STATES[deployStatus()[cur.id]||'pendiente']}</div>
+      <button class="btn btn-sm" style="margin-top:10px;" onclick="sv('deploy')">Ver plan de despliegue</button>`
+      :`<div class="slbl" style="margin-bottom:6px;">Compras de esta semana · ${fmt(DCA_WEEKLY)}</div>
       ${plan.length?plan.map(c=>{const v=buyVehicle(c.key), accts=v.accts.length?v.accts:['MX'];
         return `<div class="week-row"><span><span class="tk">${v.ticker}</span> <span style="font-size:11px;color:var(--muted);">${c.label} · ${accts.join(', ')}</span></span><span class="mono up">${fmt(c.amt)}</span></div>`;}).join('')
         :'<div class="week-row">Todas las clases están en meta.</div>'}
-      <button class="btn btn-sm" style="margin-top:10px;" onclick="sv('dca')">Ver plan DCA</button>
+      <button class="btn btn-sm" style="margin-top:10px;" onclick="sv('dca')">Ver plan DCA</button>`}
     </div>
     <div class="week-box">
       <div class="slbl" style="margin-bottom:10px;">Alertas de la estrategia</div>
@@ -825,11 +917,11 @@ function renderCorrelation(){
   const ap=activePos(), t=totalActive();
   const byCat=catBuckets();
   const cb=classBreakdown(), wc=calcCorr(), wi=calcCorrInvested(), hp=cb.pct('gold'), cp=cb.pct('crypto');
-  const corrCol=v=>v>=0.80?'var(--red)':v>=0.65?'var(--amber)':'var(--green)';
-  const corrTxt=v=>v>=0.80?'Muy alta':v>=0.65?'Alta':'Moderada';
+  const corrCol=v=>v>=0.80?'var(--red)':v>=CORR_TARGET?'var(--amber)':'var(--green)';
+  const corrTxt=v=>v>=0.80?'Muy alta':v>=CORR_TARGET?'Alta':'Moderada';
   document.getElementById('corrCards').innerHTML=`
-    <div class="card"><div class="card-lbl">Correlación interna</div><div class="card-val" style="color:${corrCol(wc)}">${wc.toFixed(2)}</div><div class="card-sub">${corrTxt(wc)} · incluye efectivo · meta &lt; 0.65</div></div>
-    <div class="card"><div class="card-lbl">Correlación de lo invertido</div><div class="card-val" style="color:${corrCol(wi)}">${wi.toFixed(2)}</div><div class="card-sub">${corrTxt(wi)} · sin efectivo</div></div>
+    <div class="card"><div class="card-lbl">Correlación interna</div><div class="card-val" style="color:${corrCol(wc)}">${wc.toFixed(2)}</div><div class="card-sub">${corrTxt(wc)} · incluye efectivo · solo referencia</div></div>
+    <div class="card"><div class="card-lbl">Correlación de lo invertido</div><div class="card-val" style="color:${corrCol(wi)}">${wi.toFixed(2)}</div><div class="card-sub">${corrTxt(wi)} · sin efectivo · meta &lt; ${CORR_TARGET}</div></div>
     <div class="card"><div class="card-lbl">Oro (corr &lt;0.3)</div><div class="card-val" style="color:${hp>=5-REBAL_BAND?'var(--green)':'var(--red)'}">${hp.toFixed(1)}%</div><div class="card-sub">GLD · meta 5%</div></div>
     <div class="card"><div class="card-lbl">Crypto</div><div class="card-val" style="color:${cp<=8?'var(--green)':cp<=12?'var(--amber)':'var(--red)'}">${cp.toFixed(1)}%</div><div class="card-sub">Corr 0.52→0.75 en crisis</div></div>`;
   const cur=[
@@ -862,7 +954,7 @@ function renderCorrelation(){
     </div>`).join('');
   const gldNow=(byCat.hedge||0)/t*100;
   const progL=['Ahora',...[2,4,5,8,10].map(g=>'GLD '+g+'%')];
-  const progD=[wc,...[2,4,5,8,10].map(g=>Math.max(0.35,wc-(g-gldNow)*0.009))];
+  const progD=[wi,...[2,4,5,8,10].map(g=>Math.max(0.35,wi-(g-gldNow)*0.009))];
   if(corrProgressChart)corrProgressChart.destroy();
   corrProgressChart=new Chart(document.getElementById('corrProgress'),{type:'line',data:{
     labels:progL,
@@ -924,22 +1016,27 @@ async function generateRecs(){
       return `${p.ticker}(${p.acct},${mixFor(p.ticker)?'fondo mixto':assetClass(p)}) ${fmt(p.valueUSD)} PL${pnl>=0?'+':''}${pnl.toFixed(0)}%`;
     }).join(' | ');
     const actual=ASSET_CLASSES.map(c=>`${c.label} ${cb.pct(c.key).toFixed(1)}% (meta ${c.target}%)`).join(' | ');
-    const plan=dcaPlan().map(c=>`${c.label} $${c.amt} en ${buyVehicle(c.key).ticker}`).join(', ')||'sin huecos';
+    const cur=deployActive()?currentDeployWeek():null;
+    const plan=cur
+      ?`Plan de despliegue vigente ($10,000/mes x 3 meses, sale del efectivo). Semana ${cur.n} del mes ${cur.month.n} (${fmtRange(cur)}): `+cur.items.map(x=>`${x.t} $${x.amt} ${acctLabel(x.acct)}${x.cond?' ('+DEPLOY_COND[x.cond].label+')':''}`).join(', ')
+      :'DCA semanal: '+(dcaPlan().map(c=>`${c.label} $${c.amt} en ${buyVehicle(c.key).ticker}`).join(', ')||'sin huecos');
+    const budget=cur?weekTotal(cur):DCA_WEEKLY;
+    const metas=ASSET_CLASSES.map(c=>`${c.label} ${c.target}%`).join(', ');
 
     bar.style.width='65%'; loadTxt.textContent='Generando recomendaciones...';
 
     const s2=await callProxy([{role:'user',content:`Asesor de inversiones. Respeta la estrategia del inversionista; no la cambies.
 
-ESTRATEGIA: horizonte 15 anos. Metas: Acciones EE.UU. 42%, Internacional 18%, Cripto 25%, Oro 5%, Renta fija/cash 10%. Cripto se reduce gradualmente: techo ${ceil}% este ano bajando hasta 25%. Reglas: (1) cero dinero nuevo a cripto hasta llegar a 25%; (2) solo se vende cripto si rebasa el techo, vendiendo BTC con ganancia; (3) altcoins fuera de la tesis, no agregar; (4) DCA $${DCA_WEEKLY}/sem a las clases con hueco; banda de rebalanceo +-${REBAL_BAND} pts. Cash MXN rinde 6.5% fijo.
+ESTRATEGIA (acordada con el portfolio manager, cambio del ${STRATEGY_CHANGES[0].date}): horizonte 15 anos. Metas: ${metas} (renta fija/cash maximo ${FIXED_MAX}%). Banda +-${REBAL_BAND} pts. Cripto es apuesta de conviccion: techo ${ceil}% este ano bajando a 25% en 2031, no se vende en perdida y no recibe dinero nuevo; solo se vende BTC con ganancia si rebasa el techo. Altcoins fuera de la tesis. Se acumula en VEA, VTI y GLD; GOOG, META y NVDA solo si cotizan debajo de su costo promedio (si no, a VTI). Meta de correlacion < ${CORR_TARGET} medida sin efectivo. Cash MXN rinde 6.5% fijo.
 
 ACTUAL: ${actual}
-Plan DCA calculado: ${plan}
+Compras de esta semana: ${plan}
 Top posiciones: ${topPos}
 Correlacion interna estimada: ${wc.toFixed(2)} (sin efectivo: ${calcCorrInvested().toFixed(2)})
 Nota: la asignacion ya reparte los fondos mixtos por clase (look-through), p. ej. AGF-CA es un fondo balanceado con bonos canadienses; no lo trates como indice de EE.UU.
 Mercado: ${MARKET_CTX}
 
-Tarea: "buy" = una entrada por cada linea del plan DCA, usando esos mismos tickers (ya estan en el portafolio; nunca cripto ni ETFs nuevos que dupliquen exposicion); dca_weekly debe sumar ${DCA_WEEKLY}. "reduce" = hasta 3 posiciones que no encajan con la estrategia o son redundantes, explicando si conviene vender ya o solo dejar de comprar.
+Tarea: "buy" = una entrada por cada ticker de las compras de esta semana, con esos mismos tickers y montos (no los cambies; nunca cripto ni ETFs nuevos que dupliquen exposicion); dca_weekly debe sumar ${budget}. Explica en rationale como acerca cada compra a las metas y, si tiene condicion, si hoy se cumple. "reduce" = hasta 3 posiciones que no encajan con la estrategia o son redundantes, explicando si conviene vender ya o solo dejar de comprar.
 
 Responde SOLO con JSON sin texto extra ni markdown:
 {"market_context":"resumen breve","buy":[{"ticker":"VXUS","name":"nombre","action":"Comprar","rationale":"especifico al portafolio y la estrategia","corr_sp500":0.8,"dca_weekly":150,"account":"MX"}],"reduce":[{"ticker":"XXX","reason":"especifico"}]}`}], false);
@@ -986,7 +1083,7 @@ Responde SOLO con JSON sin texto extra ni markdown:
         <div style="font-size:10px;font-family:var(--mono);color:var(--muted);">${r.account||'MX'} · /semana</div>
       </div>`).join('');
     document.getElementById('recsDCATotal').textContent=
-      `Total sugerido: $${dcaTotal}/sem de $300 disponibles · Restante: $${Math.max(0,300-dcaTotal)}/sem`;
+      `Total sugerido: $${dcaTotal} de $${budget} de esta semana · Restante: $${Math.max(0,budget-dcaTotal)}`;
 
     document.getElementById('recsReduceList').innerHTML=(parsed.reduce||[]).map(r=>`
       <div style="display:flex;gap:12px;padding:12px 16px;background:var(--surface);border:1px solid var(--border);border-radius:10px;margin-bottom:8px;">
@@ -1009,13 +1106,15 @@ Responde SOLO con JSON sin texto extra ni markdown:
 
 // ─── DCA ───
 function renderDCA(){
-  const cb=classBreakdown(), plan=dcaPlan(), yrs=yearsToCryptoTarget();
+  const post=deployActive(), cb=post?projectedBreakdown(3):classBreakdown(), plan=dcaPost(), yrs=yearsToCryptoTarget();
   document.getElementById('dcaCards').innerHTML=`
     <div class="card"><div class="card-lbl">Aportación semanal</div><div class="card-val up">${fmt(DCA_WEEKLY)}</div><div class="card-sub">USD · nunca a cripto</div></div>
     <div class="card"><div class="card-lbl">Aportación anual</div><div class="card-val">${fmt(DCA_WEEKLY*52)}</div><div class="card-sub">52 semanas</div></div>
     <div class="card"><div class="card-lbl">Cripto hoy</div><div class="card-val s-${targetStatus('crypto').level}">${cb.pct('crypto').toFixed(1)}%</div><div class="card-sub">techo ${cryptoCeiling()}% · meta 25%</div></div>
     <div class="card"><div class="card-lbl">Años a cripto 25%</div><div class="card-val">${yrs>0?yrs.toFixed(1):'—'}</div><div class="card-sub">solo con aportaciones, cripto plano</div></div>`;
-  document.getElementById('dcaPhases').innerHTML=`<div class="info" style="grid-column:1/-1;margin:0;">El reparto se recalcula con tus posiciones actuales: el dinero va a las clases por debajo de su meta, en proporción al hueco en USD. Cripto no recibe aportaciones hasta llegar a 25%.</div>`;
+  document.getElementById('dcaPhases').innerHTML=post
+    ?`<div class="warn" style="grid-column:1/-1;margin:0;">El DCA está en pausa mientras corre el plan de despliegue (hasta el ${new Date(DEPLOY.end+'T12:00').toLocaleDateString('es-MX',{day:'numeric',month:'short',year:'numeric'})}). Este es el DCA que aplicará después: se calcula sobre la asignación proyectada al terminar el mes 3, repartido en proporción a los huecos que queden. <button class="btn btn-sm" onclick="sv('deploy')">Ver despliegue</button></div>`
+    :`<div class="info" style="grid-column:1/-1;margin:0;">El reparto se recalcula con tus posiciones actuales: el dinero va a las clases por debajo de su meta, en proporción al hueco en USD. Cripto no recibe aportaciones hasta llegar a 25%.</div>`;
   document.getElementById('weeklyTbl').innerHTML=plan.length?plan.map(c=>{
     const v=buyVehicle(c.key), accts=v.accts.length?v.accts:['MX'];
     const origin=v.held?'Ya la tienes: acumular más':'Nueva posición';
@@ -1023,19 +1122,93 @@ function renderDCA(){
     return `<tr>
     <td><span class="tk">${v.ticker}</span><br><span style="font-size:11px;color:var(--muted);">${c.label}</span></td>
     <td><span class="mono up">${fmt(c.amt)}</span></td>
-    <td style="font-size:12px;color:var(--muted);">${cb.pct(c.key).toFixed(1)}% → meta ${c.target}% · faltan ${fmt(c.gap)}<br>${origin}${others}</td>
+    <td style="font-size:12px;color:var(--muted);">${cb.pct(c.key).toFixed(1)}%${post?' (proyectado)':''} → meta ${c.target}% · faltan ${fmt(c.gap)}<br>${origin}${others}</td>
     <td>${accts.map(a=>`<span class="abadge ${acctClass(a)}">${a}</span>`).join(' ')}</td>
   </tr>`;}).join(''):`<tr><td colspan="4" style="color:var(--muted);font-size:12px;">Todas las clases están en su meta.</td></tr>`;
 }
 
+// ─── DESPLIEGUE (vista) ───
+function deployChip(x){
+  const c=DEPLOY_COND[x.cond], chk=c?.checkCost?costCheck(x.t):null;
+  const tip=c?c.label+(chk?` · hoy ${fmt2(chk.price)} vs costo promedio ${fmt2(chk.avg)}: ${chk.below?'debajo, se compra':'arriba, iría a VTI'}`:''):'';
+  const mark=chk?(chk.below?'<span class="s-ok"> ✓</span>':'<span class="s-warn"> →VTI</span>'):'';
+  return `<span title="${escAttr(tip)}" style="display:inline-block;margin:2px 4px 2px 0;padding:2px 8px;border:1px solid var(--border-md);border-radius:999px;font-family:var(--mono);font-size:11px;white-space:nowrap;">${x.t} ${fmt(x.amt)}${x.acct!=='MX'?' · '+acctLabel(x.acct):''}${c?' *':''}${x.cond==='reserve'?' reserva':''}${mark}</span>`;
+}
+function deployProgressRows(){
+  const steps=[classBreakdown(),projectedBreakdown(1),projectedBreakdown(2),projectedBreakdown(3)];
+  return ASSET_CLASSES.map(c=>{
+    const last=steps[3].pct(c.key), lim=c.key==='fixed'?FIXED_MAX:c.target+REBAL_BAND;
+    const ok=Math.abs(last-c.target)<=REBAL_BAND||(c.key==='fixed'&&last<=FIXED_MAX);
+    return {c,vals:steps.map(s=>s.pct(c.key)),ok,lim};
+  });
+}
+function deployRemaining(){
+  const end=projectedBreakdown(3), t=end.t;
+  const us=ASSET_CLASSES.find(c=>c.key==='us').target/100, intl=ASSET_CLASSES.find(c=>c.key==='intl').target/100;
+  const gapUS=Math.max(0,us*t-end.by.us), gapIntl=Math.max(0,intl*t-end.by.intl);
+  const cashExtra=Math.max(0,end.by.fixed-FIXED_MAX/100*t);
+  return {gapUS,gapIntl,total:gapUS+gapIntl,cashExtra:Math.min(cashExtra,gapUS+gapIntl),rest:Math.max(0,gapUS+gapIntl-cashExtra)};
+}
+function renderDeploy(){
+  const st=deployStatus(), weeks=deployWeeks(), cur=currentDeployWeek();
+  const sumBy=state=>weeks.filter(w=>(st[w.id]||'pendiente')===state).reduce((s,w)=>s+weekTotal(w),0);
+  const total=weeks.reduce((s,w)=>s+weekTotal(w),0);
+  const tickers=['VEA','VTI','GOOG','META','NVDA','BRK.B','GLD'];
+  const tt=[1,2,3].map(k=>{const a=deployTickerTotals(k),b=deployTickerTotals(k-1);return Object.fromEntries(tickers.map(t=>[t,(a[t]||0)-(b[t]||0)]));});
+  const byAcct={}; weeks.forEach(w=>w.items.forEach(x=>{byAcct[x.acct]=(byAcct[x.acct]||0)+x.amt;}));
+  const rows=deployProgressRows(), rem=deployRemaining(), base=classBreakdown().t;
+  const cell='style="padding:8px 10px;"';
+  document.getElementById('deployDetail').innerHTML=`
+    <div class="info" style="margin-bottom:14px;">Plan acordado el ${DEPLOY.agreed} con tu portfolio manager: ${fmt(DEPLOY.monthly)} al mes durante 3 meses (${fmt(total)}), saliendo del efectivo. Reemplaza al DCA de ${fmt(DCA_WEEKLY)}/semana, que vuelve al terminar. Se acumula en VEA, VTI y GLD; GOOG, META y NVDA solo como excepción deliberada.</div>
+    <div class="cards">
+      <div class="card"><div class="card-lbl">Total del plan</div><div class="card-val">${fmt(total)}</div><div class="card-sub">3 meses · 12 semanas</div></div>
+      <div class="card"><div class="card-lbl">Ejecutado</div><div class="card-val s-ok">${fmt(sumBy('ejecutada'))}</div><div class="card-sub">programado ${fmt(sumBy('programada'))}</div></div>
+      <div class="card"><div class="card-lbl">Pendiente</div><div class="card-val">${fmt(sumBy('pendiente'))}</div><div class="card-sub">por programar</div></div>
+      <div class="card"><div class="card-lbl">${cur&&cur.from<=todayISO()?'Semana en curso':'Próxima semana'}</div><div class="card-val" style="font-size:18px;">${cur?`Mes ${cur.month.n} · S${cur.n}`:'Terminado'}</div><div class="card-sub">${cur?fmtRange(cur)+' · '+fmt(weekTotal(cur)):'El DCA semanal volvió a aplicar'}</div></div>
+    </div>
+    ${DEPLOY.months.map(m=>`
+    <div class="tbl-wrap">
+      <div class="tbl-bar"><span>Mes ${m.n} · ${m.range}</span><span>${fmt(m.weeks.reduce((s,w)=>s+weekTotal(w),0))}</span></div>
+      <table>
+        <thead><tr><th>Semana</th><th>Compras (cuenta MX salvo indicación)</th><th>Total</th><th>Estado</th></tr></thead>
+        <tbody>${m.weeks.map((w,i)=>{const isCur=cur&&cur.id===w.id;return `<tr${isCur?' style="background:var(--surface2);"':''}>
+          <td ${cell}><span class="tk">S${i+1}</span>${isCur?' <span class="s-ok mono" style="font-size:10px;">← ahora</span>':''}<br><span style="font-size:11px;color:var(--muted);">${fmtRange(w)}</span>${w.note?`<br><span style="font-size:11px;color:var(--amber);">${w.note}</span>`:''}</td>
+          <td ${cell}>${w.items.map(deployChip).join('')}</td>
+          <td class="mono" ${cell}>${fmt(weekTotal(w))}</td>
+          <td ${cell}><select class="url-input" style="padding:4px 6px;font-size:11px;" onchange="setDeployStatus('${w.id}',this.value)">${Object.entries(DEPLOY_STATES).map(([k,l])=>`<option value="${k}"${(st[w.id]||'pendiente')===k?' selected':''}>${l}</option>`).join('')}</select></td>
+        </tr>`;}).join('')}</tbody>
+      </table>
+      <div style="font-size:11px;color:var(--muted);padding:10px 16px;line-height:1.6;">${m.note} ${[...new Set(m.weeks.flatMap(w=>w.items.map(x=>x.cond)).filter(Boolean))].map(k=>`* ${DEPLOY_COND[k].label}.`).join(' ')} ✓ = hoy cotiza debajo de su costo promedio; →VTI = hoy iría a VTI (pasa el cursor para ver precios).</div>
+    </div>`).join('')}
+    <div class="tbl-wrap">
+      <div class="tbl-bar"><span>Totales del plan</span><span>MX ${fmt(byAcct.MX||0)} · Bitso ${fmt(byAcct.BITSO||0)} · CA ${fmt(byAcct.CA||0)}</span></div>
+      <table>
+        <thead><tr><th>Ticker</th><th>Clase</th><th>Mes 1</th><th>Mes 2</th><th>Mes 3</th><th>Total</th></tr></thead>
+        <tbody>${tickers.map(t=>`<tr><td ${cell}><span class="tk">${t}</span></td><td ${cell} style="font-size:12px;">${ASSET_CLASSES.find(c=>c.key===DEPLOY.classOf[t]).label}</td>${tt.map(m=>`<td class="mono" ${cell}>${m[t]?fmt(m[t]):'—'}</td>`).join('')}<td class="mono" ${cell}><strong>${fmt(tt.reduce((s,m)=>s+m[t],0))}</strong></td></tr>`).join('')}
+          <tr style="background:var(--surface2);"><td ${cell}><strong>Total</strong></td><td ${cell}></td>${tt.map(m=>`<td class="mono" ${cell}>${fmt(Object.values(m).reduce((s,v)=>s+v,0))}</td>`).join('')}<td class="mono" ${cell}><strong>${fmt(total)}</strong></td></tr></tbody>
+      </table>
+    </div>
+    <div class="warn" style="margin-bottom:18px;"><strong>Pendiente de decidir:</strong> ${DEPLOY.pending}</div>
+    <div class="tbl-wrap">
+      <div class="tbl-bar"><span>Avance hacia las metas</span><span>base ${fmt(base)} · desde el efectivo · precios constantes</span></div>
+      <table>
+        <thead><tr><th>Clase</th><th>Hoy</th><th>Tras mes 1</th><th>Tras mes 2</th><th>Tras mes 3</th><th>Meta</th></tr></thead>
+        <tbody>${rows.map(r=>`<tr><td ${cell}>${r.c.label}</td>${r.vals.map((v,i)=>`<td class="mono${i===3?' s-'+(r.ok?'ok':'warn'):''}" ${cell}>${v.toFixed(1)}%</td>`).join('')}<td class="mono" ${cell}>${r.c.key==='fixed'?`${r.c.target}% (máx. ${FIXED_MAX}%)`:r.c.target+'%'}</td></tr>`).join('')}</tbody>
+      </table>
+      <div style="font-size:11px;color:var(--muted);padding:10px 16px;line-height:1.6;">Caso base: las compras con * se cuentan como planeadas (si una va a VTI, sigue siendo EE.UU.; solo NVDA del mes 1 cambiaría a internacional). Las semanas marcadas como Ejecutada ya no se suman: se asume que tu hoja ya las refleja. Recuerda bajar el efectivo en Configurar al ejecutar.</div>
+    </div>
+    <div class="info">Al terminar los 3 meses todavía faltarían ~${fmt(rem.gapUS)} en Acciones EE.UU. y ~${fmt(rem.gapIntl)} en internacional (~${fmt(rem.total)}). Unos ${fmt(rem.cashExtra)} pueden salir del efectivo sin bajar del ${FIXED_MAX}%; el resto (~${fmt(rem.rest)}), del DCA o de capital nuevo.</div>`;
+}
+
 // ─── ESTRATEGIA (vista) ───
 const STRATEGY_RULES=[
-  ['Dinero nuevo',`Los ${fmt(DCA_WEEKLY)}/semana se reparten entre las clases por debajo de su meta (ver Plan DCA). Cripto no recibe aportaciones hasta llegar a 25%.`],
-  ['Acumular en lo que ya tienes','Cada clase se compra con el ETF amplio que ya tienes (VEA para internacional, VTI para EE.UU., GLD para oro). No se abren posiciones nuevas que dupliquen exposición: VGK ya está contenido en VEA.'],
-  ['Techo de cripto','Si cripto rebasa el techo del año, se vende BTC con ganancia hasta volver al techo y se reinvierte en los huecos. Nunca se vende cripto en pérdida para rebalancear.'],
-  ['Altcoins','SOL, AAVE, LINK, ARB, UNI y HYPE quedan fuera de la tesis: no se agregan. Evaluar con el contador venderlas para aprovechar la pérdida fiscal.'],
+  ['Dinero nuevo',`Plan principal: despliegue de $30,000 en 3 meses ($10,000/mes, 23 nov 2026 – 12 feb 2027; ver Despliegue), saliendo del efectivo. Al terminar, vuelve el DCA de ${fmt(DCA_WEEKLY)}/semana repartido en proporción a los huecos. Cripto no recibe dinero nuevo.`],
+  ['Acumular en lo que ya tienes','Se acumula en VEA (internacional), VTI (EE.UU.) y GLD (oro). GOOG, META y NVDA solo como excepción deliberada si ese día cotizan debajo de su costo promedio; si no, ese monto va a VTI. No se abren posiciones que dupliquen exposición: VGK ya está contenido en VEA.'],
+  ['Techo de cripto','Cripto es una apuesta de convicción: no se vende en pérdida y no recibe dinero nuevo por ahora. Si rebasa el techo del año, se vende BTC con ganancia hasta volver al techo y se reinvierte en los huecos.'],
+  ['Altcoins','SOL, AAVE, LINK, UNI y HYPE quedan fuera de la tesis: no se agregan. Evaluar con el contador venderlas para aprovechar la pérdida fiscal.'],
   ['ETH / stETH','Pendiente decidir si forman parte de la tesis de reserva de valor. Mientras tanto, no se agregan.'],
-  ['Bandas de rebalanceo',`Una clase está en meta si está a ±${REBAL_BAND} pts. Debajo de la banda, el DCA la prioriza; arriba, se deja de comprar.`],
+  ['Bandas de rebalanceo',`Una clase está en meta si está a ±${REBAL_BAND} pts. Debajo de la banda, el plan de compras la prioriza; arriba, se deja de comprar.`],
+  ['Correlación',`Meta < ${CORR_TARGET} medida con la correlación de lo invertido (sin efectivo). La que incluye efectivo es solo referencia: el cash la baja artificialmente.`],
   ['Oro','5% como cobertura ante caídas e inflación, no como apuesta.'],
   ['Renta fija / Cash','10% (máximo 15%). El cash MXN rinde 6.5% fijo. Si pasa de 15%, se despliega hacia los huecos.'],
   ['Revisión','Revisar esta página cada trimestre o cuando cambie algo importante (ingresos, horizonte, objetivos).'],
@@ -1044,7 +1217,8 @@ function renderStrategy(){
   const cb=classBreakdown(), ceil=cryptoCeiling(), yr=new Date().getFullYear();
   const years=Object.keys(CRYPTO_CEILING).map(Number).sort();
   document.getElementById('strategyDetail').innerHTML=`
-    <div class="info" style="margin-bottom:16px;">Estrategia vigente · adoptada el ${STRATEGY_DATE}. ${STRATEGY_THESIS}</div>
+    <div class="info" style="margin-bottom:10px;">Estrategia vigente · adoptada el ${STRATEGY_DATE}. ${STRATEGY_THESIS}</div>
+    ${STRATEGY_CHANGES.map(c=>`<div class="warn" style="margin-bottom:16px;"><strong>Cambio del ${c.date}:</strong> ${c.text}</div>`).join('')}
     ${STATUS_LEGEND}
     <div class="tbl-wrap">
       <div class="tbl-bar"><span>Asignación objetivo</span><span>${fmt(cb.t)} activo</span></div>
@@ -1239,13 +1413,15 @@ function buildPortfolioMarkdown(){
       ['Cuentas de retiro (aparte)',usd(totalRetiro())],
       ['Total consolidado',usd(t+totalRetiro())],
       ['Posiciones activas',String(ap.length)],
-      ['Correlación interna estimada',`${calcCorr().toFixed(2)} (meta < 0.65)`],
-      ['Correlación de lo invertido (sin efectivo)',calcCorrInvested().toFixed(2)],
+      ['Correlación de lo invertido (sin efectivo)',`${calcCorrInvested().toFixed(2)} (meta < ${CORR_TARGET})`],
+      ['Correlación con efectivo (referencia)',calcCorr().toFixed(2)],
     ]),
     ``,
     `## 2. Estrategia vigente`,
     ``,
     `Adoptada el ${STRATEGY_DATE}. ${STRATEGY_THESIS}`,
+    ``,
+    ...STRATEGY_CHANGES.map(c=>`**Cambio del ${c.date}:** ${c.text}`),
     ``,
     `### Asignación objetivo por clase de activo`,
     ``,
@@ -1254,7 +1430,7 @@ function buildPortfolioMarkdown(){
     ``,
     `La asignación usa look-through: las posiciones con mezcla (sección 6) se reparten entre clases según lo que traen por dentro.`,
     ``,
-    `Banda de rebalanceo: ±${REBAL_BAND} pts. Aportación (DCA): ${usd(DCA_WEEKLY)}/semana (${usd(DCA_WEEKLY*52)}/año).`,
+    `Banda de rebalanceo: ±${REBAL_BAND} pts. Renta fija/cash máximo ${FIXED_MAX}%. Meta de correlación < ${CORR_TARGET}, medida sin efectivo. Plan principal: despliegue de ${usd(30000)} en 3 meses (sección 4); después, DCA de ${usd(DCA_WEEKLY)}/semana.`,
     ``,
     `### Transición de cripto (techo por año)`,
     ``,
@@ -1271,9 +1447,30 @@ function buildPortfolioMarkdown(){
     ``,
     ...(()=>{const a=[...dataAlerts(),...strategyAlerts()];return a.length?a.map(x=>`- **${x.type==='bad'?'Acción requerida':'Atención'}:** ${x.msg}`):['- Todo en meta.'];})(),
     ``,
-    `## 4. Plan DCA de esta semana`,
+    `## 4. Plan de despliegue (${usd(30000)} en 3 meses, acordado el ${DEPLOY.agreed})`,
     ``,
-    (()=>{const plan=dcaPlan();return plan.length?table(['Clase','Ticker','Monto/semana','Cuenta','Hueco USD','Nota'],
+    `${usd(DEPLOY.monthly)} al mes saliendo del efectivo, del ${DEPLOY.start} al ${DEPLOY.end}. Reemplaza al DCA semanal mientras está vigente. "*" = condición. Estados: los guarda el usuario en el dashboard.`,
+    ``,
+    table(['Mes','Semana','Fechas','Compras (MX salvo indicación)','Total','Estado'],deployWeeks().map(w=>[String(w.month.n),String(w.n),fmtRange(w)+(w.note?' · '+w.note:''),
+      w.items.map(x=>`${x.t} ${usd(x.amt)}${x.acct!=='MX'?' '+acctLabel(x.acct):''}${x.cond?' *':''}`).join(', '),usd(weekTotal(w)),DEPLOY_STATES[deployStatus()[w.id]||'pendiente']])),
+    ``,
+    ...Object.values(DEPLOY_COND).map(c=>`- * ${c.label}.`),
+    `- Pendiente de decidir: ${DEPLOY.pending}`,
+    ``,
+    `### Totales del plan`,
+    ``,
+    (()=>{const tk=['VEA','VTI','GOOG','META','NVDA','BRK.B','GLD'], m=[1,2,3].map(k=>{const a=deployTickerTotals(k),b=deployTickerTotals(k-1);return tk.map(t=>(a[t]||0)-(b[t]||0));});
+      return table(['Ticker','Mes 1','Mes 2','Mes 3','Total'],[...tk.map((t,i)=>[t,...m.map(r=>usd(r[i])),usd(m.reduce((s,r)=>s+r[i],0))]),['Total',...m.map(r=>usd(r.reduce((s,v)=>s+v,0))),usd(30000)]]);})(),
+    ``,
+    `### Avance proyectado hacia las metas (base ${usd(t)}, desde el efectivo, precios constantes)`,
+    ``,
+    table(['Clase','Hoy','Tras mes 1','Tras mes 2','Tras mes 3','Meta'],deployProgressRows().map(r=>[r.c.label,...r.vals.map(v=>pct(v)),r.c.key==='fixed'?`${r.c.target}% (máx. ${FIXED_MAX}%)`:r.c.target+'%'])),
+    ``,
+    (()=>{const r=deployRemaining();return `Al terminar los 3 meses faltarían ~${usd(r.gapUS)} en Acciones EE.UU. y ~${usd(r.gapIntl)} en internacional (~${usd(r.total)}). Unos ${usd(r.cashExtra)} pueden salir del efectivo sin bajar del ${FIXED_MAX}%; el resto (~${usd(r.rest)}), del DCA o de capital nuevo.`;})(),
+    ``,
+    `### DCA ${deployActive()?'posterior (desde el fin del despliegue, sobre la asignación proyectada)':'de esta semana'}`,
+    ``,
+    (()=>{const plan=dcaPost();return plan.length?table(['Clase','Ticker','Monto/semana','Cuenta','Hueco USD','Nota'],
       plan.map(c=>{const v=buyVehicle(c.key);return [c.label,v.ticker,usd(c.amt),(v.accts.length?v.accts:['MX']).map(acctLabel).join(', '),usd(c.gap),
         (v.held?'Ya la tiene: acumular':'Nueva posición')+(v.others.length?` · no agregar a ${v.others.join(', ')}`:'')];})):'Todas las clases están en meta.';})(),
     ``,
@@ -1309,7 +1506,7 @@ function buildPortfolioMarkdown(){
     ``,
     `## 10. Correlación (estimada)`,
     ``,
-    `Correlación interna estimada: ${calcCorr().toFixed(2)} (meta < 0.65). Correlación de lo invertido, sin efectivo: ${calcCorrInvested().toFixed(2)}. Es un promedio ponderado de correlaciones fijas por grupo contra el S&P 500, con look-through (la renta fija de una mezcla usa la correlación de bonos, no la de "Index"); no se calcula con rendimientos históricos.`,
+    `Correlación de lo invertido, sin efectivo: ${calcCorrInvested().toFixed(2)} (meta < ${CORR_TARGET}; la meta se mide con esta cifra). Con efectivo, solo referencia: ${calcCorr().toFixed(2)}. Es un promedio ponderado de correlaciones fijas por grupo contra el S&P 500, con look-through (la renta fija de una mezcla usa la correlación de bonos, no la de "Index"); no se calcula con rendimientos históricos.`,
     ``,
     table(['Grupo','Correlación vs S&P 500 (supuesta)','Peso en portafolio'],Object.entries(corrB).sort((a,b)=>b[1]-a[1])
       .map(([k,v])=>[catLabel(k),(CAT_CORR[k]??0.7).toFixed(2),pct(corrT>0?v/corrT*100:0)])),
@@ -1531,7 +1728,7 @@ function resetMixes(){
 // ─── NAVEGACIÓN (dos niveles) ───
 const NAV=[
   {group:'Portafolio',views:[['overview','Resumen'],['positions','Posiciones'],['allocation','Asignación'],['correlation','Correlación']]},
-  {group:'Plan',views:[['strategy','Estrategia'],['dca','Plan DCA'],['recs','Recomendaciones']]},
+  {group:'Plan',views:[['strategy','Estrategia'],['deploy','Despliegue'],['dca','Plan DCA'],['recs','Recomendaciones']]},
   {group:'Cuentas',views:[['retirement','Retiro'],['historial','Historial']]},
 ];
 function renderNav(view){
@@ -1545,6 +1742,7 @@ function sv(view){
   renderNav(view);
   if(view==='overview')renderOverview();
   if(view==='strategy')renderStrategy();
+  if(view==='deploy')renderDeploy();
   if(view==='positions')renderPositions();
   if(view==='allocation')renderAllocation();
   if(view==='correlation')renderCorrelation();
