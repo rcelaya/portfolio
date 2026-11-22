@@ -126,8 +126,9 @@ function bootAuth(){
 // ─── CONSTANTS ───
 const ACTIVE_ACCOUNTS = ['MX','CA','CA2','CRYPTO','BITSO','AGF'];
 const RETIRO_ACCOUNTS = ['RETIRO'];
-// ETFs de la hoja que cotizan en CAD (Bolsa de Toronto). La hoja también puede indicarlo con una columna "moneda".
-const CAD_PRICED_TICKERS = ['ZSP','XSP'];
+// Tickers cuyo precio manda la hoja en CAD. Vacío: la hoja ya convierte ZSP y XSP a USD dividiendo entre
+// GOOGLEFINANCE("CURRENCY:USDCAD"). La hoja también puede indicarlo con una columna "moneda".
+const CAD_PRICED_TICKERS = [];
 // Reclasificaciones de categoría sobre lo que manda la hoja.
 const CAT_OVERRIDES = {VNQ:'realestate'};
 
@@ -149,8 +150,8 @@ const STATIC_POSITIONS = [
   {ticker:'DIS',name:'Walt Disney Co',units:0.00657,costUSD:96.50,priceUSD:100.46,cat:'tech',acct:'MX'},
   {ticker:'SPYG',name:'SPDR S&P 500 Growth',units:75.2401,costUSD:84.30,priceUSD:101.98,cat:'index',acct:'CA'},
   {ticker:'VOO',name:'Vanguard S&P 500',units:8.2197,costUSD:395.20,priceUSD:612.88,cat:'index',acct:'CA'},
-  {ticker:'ZSP',name:'BMO S&P 500 ETF',units:62.4804,ccy:'CAD',costN:72.71,priceN:100.32,cat:'index',acct:'CA'},
-  {ticker:'XSP',name:'iShares S&P 500 CAD-hdg',units:57.6236,ccy:'CAD',costN:47.19,priceN:67.80,cat:'index',acct:'CA'},
+  {ticker:'ZSP',name:'BMO S&P 500 ETF',units:62.4804,costUSD:53.00,priceUSD:73.12,cat:'index',acct:'CA'},
+  {ticker:'XSP',name:'iShares S&P 500 CAD-hdg',units:57.6236,costUSD:34.40,priceUSD:49.42,cat:'index',acct:'CA'},
   {ticker:'AAPL',name:'Apple Inc',units:10.2434,costUSD:164.10,priceUSD:251.03,cat:'tech',acct:'CA'},
   {ticker:'META',name:'Meta Platforms',units:3.2923,costUSD:456.20,priceUSD:617.35,cat:'tech',acct:'CA'},
   {ticker:'MSFT',name:'Microsoft Corp',units:4.2021,costUSD:351.80,priceUSD:394.26,cat:'tech',acct:'CA'},
@@ -844,7 +845,7 @@ function renderAllocation(){
   }).join('');
 }
 
-// Antes = cálculo previo (AGF-CA 100% EE.UU., categoría de la hoja, TC fijo, ZSP/XSP sin convertir de CAD).
+// Antes = cálculo previo (AGF-CA 100% EE.UU., categoría de la hoja, TC fijo de Configurar).
 // Después = look-through de mezclas + TC del día. Se calcula con los datos cargados en este momento.
 function mixNote(){
   const held=new Set(activePos().map(p=>p.ticker));
@@ -864,7 +865,7 @@ function renderCompare(){
   const cell='style="padding:8px 10px;"';
   document.getElementById('compareBody').innerHTML=`
     <div style="font-size:12px;color:var(--muted);line-height:1.6;margin-bottom:12px;">
-      <strong>Antes:</strong> AGF-CA contaba 100% como Acciones EE.UU., VNQ como internacional, tipo de cambio fijo de Configurar y ZSP/XSP de la hoja sin convertir de CAD.
+      <strong>Antes:</strong> AGF-CA contaba 100% como Acciones EE.UU., VNQ como internacional y tipo de cambio fijo de Configurar.
       <strong>Después:</strong> mezclas por clase y tipo de cambio del día (${fxSummary().text}).
     </div>
     <div class="tbl-wrap" style="margin-bottom:14px;"><table>
@@ -1530,8 +1531,8 @@ function buildPortfolioMarkdown(){
     `## 14. Limitaciones de los datos`,
     ``,
     `- Las posiciones con fuente "estático" usan un precio de respaldo que puede estar desactualizado.`,
-    `- Tipos de cambio: el VALOR de lo que está en CAD y MXN (ZSP, XSP, AGF-CA, cash, RRSP, AFORE) se convierte con el tipo de cambio del día (hoja con GOOGLEFINANCE o, de respaldo, Frankfurter/BCE; si fallan, el último valor bueno). El COSTO usa el tipo de cambio histórico de Configurar, porque no hay fecha por compra; por eso el P/L se separa en "por inversión" y "por tipo de cambio". Excepción: el efectivo (CASH-MX, CASH-CA) convierte su costo al TC del día, así su P/L es solo el rendimiento nominal.`,
-    `- ZSP y XSP se tratan como cotizados en CAD en la hoja (o según la columna "moneda", si existe).`,
+    `- Tipos de cambio: el VALOR de lo que está en CAD y MXN (AGF-CA, cash, RRSP, AFORE) se convierte con el tipo de cambio del día (hoja con GOOGLEFINANCE o, de respaldo, Frankfurter/BCE; si fallan, el último valor bueno). El COSTO usa el tipo de cambio histórico de Configurar, porque no hay fecha por compra; por eso el P/L se separa en "por inversión" y "por tipo de cambio". Excepción: el efectivo (CASH-MX, CASH-CA) convierte su costo al TC del día, así su P/L es solo el rendimiento nominal.`,
+    `- ZSP y XSP cotizan en Toronto, pero la hoja ya los convierte a USD con GOOGLEFINANCE("CURRENCY:USDCAD"); el dashboard no los vuelve a convertir.`,
     ...loadMixes().filter(mixValid).map(m=>`- La mezcla de ${m.ticker} viene de: ${m.source||'sin fuente'}, con fecha ${m.date||'s/f'}. Se actualiza a mano cada trimestre.`),
     `- TSM se clasifica como internacional; VNQ (REITs de EE.UU.) como bienes raíces dentro de Acciones EE.UU.`,
     `- COIN y BMNR son acciones, pero cuentan como exposición cripto.`,
@@ -1551,6 +1552,81 @@ function exportMarkdown(){
   a.download='portafolio_'+new Date().toISOString().slice(0,10)+'.md';
   a.click();
   URL.revokeObjectURL(url);
+}
+
+// ─── PUBLICAR RESUMEN EN GOOGLE SHEETS ───
+// El dashboard escribe la pestaña "Resumen" con el mismo contenido del Markdown, para que otros agentes la lean
+// sin copiar prompts. Usa el permiso de Google del propio usuario (OAuth en el navegador): no hay llaves en el código.
+const SHEETS_SCOPE='https://www.googleapis.com/auth/spreadsheets';
+const SHEET_ID_KEY='plv2_sheet_id', PUBLISH_AUTO_KEY='plv2_publish_auto', SUMMARY_TAB='Resumen';
+let sheetsToken=null, sheetsTokenExp=0, sheetsTokenClient=null;
+const parseSheetId=v=>{const s=String(v||'').trim();return (s.match(/\/d\/([a-zA-Z0-9_-]{20,})/)||[])[1]||(/^[a-zA-Z0-9_-]{20,}$/.test(s)?s:'');};
+const summarySheetId=()=>localStorage.getItem(SHEET_ID_KEY)||'';
+const publishAuto=()=>localStorage.getItem(PUBLISH_AUTO_KEY)!=='0';
+const sheetsTokenValid=()=>!!sheetsToken&&Date.now()<sheetsTokenExp-60000;
+// Debe llamarse dentro de un clic: la primera vez Google abre una ventana para dar permiso.
+function requestSheetsToken(){
+  return new Promise((resolve,reject)=>{
+    if(sheetsTokenValid())return resolve(sheetsToken);
+    if(!window.google?.accounts?.oauth2)return reject(new Error('Google Sign-In no cargó'));
+    if(!sheetsTokenClient)sheetsTokenClient=google.accounts.oauth2.initTokenClient({client_id:AUTH.CLIENT_ID,scope:SHEETS_SCOPE,callback:()=>{}});
+    sheetsTokenClient.callback=r=>{
+      if(r.error)return reject(new Error(r.error_description||r.error));
+      sheetsToken=r.access_token; sheetsTokenExp=Date.now()+(r.expires_in||3600)*1000; resolve(sheetsToken);
+    };
+    sheetsTokenClient.error_callback=e=>reject(new Error(e?.type==='popup_closed'?'cerraste la ventana de permiso':'no se obtuvo permiso ('+(e?.type||'error')+')'));
+    sheetsTokenClient.requestAccessToken({prompt:'',hint:decodeJwt(sessionStorage.getItem(ID_TOKEN_KEY)||'')?.email});
+  });
+}
+// Markdown → filas: las tablas se separan en columnas; el resto va en la columna A sin marcas de negritas.
+function markdownToRows(md){
+  return md.split('\n').filter(l=>!/^\|\s*-{3}/.test(l)).map(l=>l.startsWith('|')
+    ?l.replace(/\\\|/g,'\u0000').split('|').slice(1,-1).map(c=>c.trim().replace(/\u0000/g,'|').replace(/\*\*/g,''))
+    :[l.replace(/\*\*/g,'')]);
+}
+async function sheetsApi(path,method,body){
+  const r=await fetch('https://sheets.googleapis.com/v4/spreadsheets/'+encodeURIComponent(summarySheetId())+path,
+    {method,headers:{Authorization:'Bearer '+sheetsToken,'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined});
+  const j=await r.json().catch(()=>({}));
+  if(!r.ok){if(r.status===401)sheetsToken=null; throw new Error(j.error?.message||('HTTP '+r.status));}
+  return j;
+}
+async function publishSummary(){
+  if(!summarySheetId())return setPublishStatus('warn','Resumen en Sheets: falta configurar la hoja');
+  if(!sheetsTokenValid())return setPublishStatus('warn','Resumen en Sheets: presiona ↻ Actualizar para dar permiso');
+  try{
+    setPublishStatus('','Publicando Resumen en Sheets…');
+    const meta=await sheetsApi('?fields=sheets.properties.title','GET');
+    if(!(meta.sheets||[]).some(x=>x.properties.title===SUMMARY_TAB))
+      await sheetsApi(':batchUpdate','POST',{requests:[{addSheet:{properties:{title:SUMMARY_TAB}}}]});
+    const stamp=new Date().toLocaleString('es-MX',{dateStyle:'medium',timeStyle:'short'});
+    const rows=[[`Escrito por el dashboard el ${stamp} · Se reemplaza completo en cada ↻ Actualizar: no lo edites a mano. Es el estado del portafolio y de la estrategia para agentes y para el portfolio manager.`],[''],...markdownToRows(buildPortfolioMarkdown())];
+    await sheetsApi(`/values/${encodeURIComponent(SUMMARY_TAB)}:clear`,'POST',{});
+    // RAW: los textos se guardan tal cual y nunca se interpretan como fórmulas.
+    await sheetsApi(`/values/${encodeURIComponent(SUMMARY_TAB+'!A1')}?valueInputOption=RAW`,'PUT',{values:rows});
+    setPublishStatus('ok','Resumen publicado en Sheets '+new Date().toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit'}));
+  }catch(e){setPublishStatus('err','No se publicó el Resumen en Sheets: '+e.message);}
+}
+function setPublishStatus(level,text){
+  ['pubStatus','st-publish'].forEach(id=>{const el=document.getElementById(id);if(!el)return;el.textContent=text;el.className=({ok:'s-ok',err:'s-bad',warn:'s-warn'})[level]||'';});
+}
+// ↻ Actualizar: pide el permiso dentro del clic (si hace falta), recarga los datos y publica.
+function refreshClick(){
+  const tok=summarySheetId()&&publishAuto()
+    ?requestSheetsToken().catch(e=>{setPublishStatus('err','Sin permiso para Sheets: '+e.message);return null;})
+    :Promise.resolve(null);
+  fetchAll().then(async()=>{if(await tok)publishSummary();});
+}
+function publishNowClick(){
+  if(!summarySheetId())return setPublishStatus('warn','Primero guarda la URL de tu hoja');
+  requestSheetsToken().then(()=>publishSummary()).catch(e=>setPublishStatus('err','Sin permiso para Sheets: '+e.message));
+}
+function saveSheetConfig(){
+  const id=parseSheetId(document.getElementById('sheetIdInput').value);
+  if(!id)return setPublishStatus('err','URL de la hoja inválida');
+  localStorage.setItem(SHEET_ID_KEY,id);
+  localStorage.setItem(PUBLISH_AUTO_KEY,document.getElementById('publishAuto').checked?'1':'0');
+  setPublishStatus('ok','Guardado ✓');
 }
 
 // ─── HISTORY ───
@@ -1774,6 +1850,8 @@ function sv(view){
     const mctx=localStorage.getItem('plv2_market_ctx');
     if(mctx)document.getElementById('val-market-ctx').value=mctx;
     renderFxStatus();
+    document.getElementById('sheetIdInput').value=summarySheetId()?'https://docs.google.com/spreadsheets/d/'+summarySheetId()+'/edit':'';
+    document.getElementById('publishAuto').checked=publishAuto();
     mixDraft=JSON.parse(JSON.stringify(loadMixes()));
     renderMixEditor();
   }
@@ -1793,7 +1871,8 @@ function startApp(){
     document.getElementById('darkBtn').textContent='☀️';
   }
   if(sheetUrl)fetchAll();else setStatus('','Configura Google Sheets en la pestaña Configurar');
-  setInterval(()=>{const h=new Date().getHours();if(h>=8&&h<17&&sheetUrl)fetchAll();},5*60*1000);
+  // Recarga cada 5 min en horario de mercado; publica en Sheets solo si ya hay permiso (no abre ventanas).
+  setInterval(()=>{const h=new Date().getHours();if(h>=8&&h<17&&sheetUrl)fetchAll().then(()=>{if(summarySheetId()&&publishAuto()&&sheetsTokenValid())publishSummary();});},5*60*1000);
 }
 
 renderNav('overview');

@@ -36,10 +36,11 @@
       <button class="btn btn-sm" onclick="exportCSV()">↓ CSV</button>
       <button class="btn btn-sm" onclick="exportMarkdown()" title="Resumen en Markdown para pasar a otros agentes (sin datos sensibles)">↓ Markdown</button>
       <button class="btn btn-sm" onclick="gotoSetup()">Configurar</button>
-      <button class="btn btn-sm btn-p" onclick="fetchAll()">↻ Actualizar</button>
+      <button class="btn btn-sm btn-p" onclick="refreshClick()">↻ Actualizar</button>
       <button class="btn btn-sm" onclick="logout()">Salir</button>
     </div>
     <div style="font-size:11px;font-family:var(--mono);color:var(--muted);" id="lastUpd"></div>
+    <div style="font-size:11px;font-family:var(--mono);" id="pubStatus"></div>
   </div>
 </div>
 
@@ -346,6 +347,20 @@
     </div>
     <div class="step">
       <div class="sn">6</div>
+      <div style="flex:1;min-width:0;">
+        <div class="st">Publicar el Resumen en tu hoja de Google</div>
+        <div class="sd" style="margin-bottom:10px;">Cada vez que presionas ↻ Actualizar, el dashboard escribe una pestaña <strong>Resumen</strong> en tu hoja con todo lo calculado (estrategia, asignación con look-through, despliegue, avance, alertas, posiciones), igual que el Markdown y sin datos sensibles. Así tu agente o tu portfolio manager la leen directo. Usa tu propio permiso de Google: la primera vez te pedirá autorizar acceso a Sheets.</div>
+        <div class="url-wrap">
+          <input class="url-input" id="sheetIdInput" placeholder="https://docs.google.com/spreadsheets/d/.../edit">
+          <button class="btn btn-p" onclick="saveSheetConfig()">Guardar</button>
+        </div>
+        <label style="display:flex;gap:8px;align-items:center;font-size:13px;cursor:pointer;margin-top:10px;"><input type="checkbox" id="publishAuto" checked> Publicar automáticamente al presionar ↻ Actualizar</label>
+        <button class="btn" style="margin-top:10px;" onclick="publishNowClick()">Publicar ahora</button>
+        <div id="st-publish" style="font-size:11px;font-family:var(--mono);margin-top:6px;color:var(--muted);"></div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="sn">7</div>
       <div>
         <div class="st">Contexto de mercado — para recomendaciones IA</div>
         <div class="sd" style="margin-bottom:10px;">Actualiza esto cada semana o dos con el estado actual del mercado. Se usa como contexto para generar recomendaciones.</div>
@@ -355,7 +370,7 @@
       </div>
     </div>
     <div class="step">
-      <div class="sn">7</div>
+      <div class="sn">8</div>
       <div>
         <div class="st">Cargar todo</div>
         <div style="display:flex;gap:8px;margin-top:8px;">
