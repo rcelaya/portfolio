@@ -351,7 +351,9 @@ function mixAlerts(){
   });
   return out;
 }
-const dataAlerts=()=>[...fxAlerts(),...mixAlerts()];
+// Avisos de celdas inválidas en la configuración de la hoja (ver CONFIGURACIÓN EN SHEETS).
+let configAlerts=[];
+const dataAlerts=()=>[...fxAlerts(),...mixAlerts(),...configAlerts];
 
 // Vehículo preferido para acumular en cada clase, en orden. Se elige el primero que ya tengas.
 // VEA va antes que VGK porque VGK (Europa) ya está contenido en VEA (desarrollados ex-EE.UU.).
@@ -412,7 +414,7 @@ function deployStatus(){
   const def={'1-1':'programada'};
   try{return {...def,...JSON.parse(localStorage.getItem(DEPLOY_STATUS_KEY)||'{}')};}catch(e){return def;}
 }
-function setDeployStatus(id,v){const s=deployStatus();s[id]=v;localStorage.setItem(DEPLOY_STATUS_KEY,JSON.stringify(s));renderAll();}
+function setDeployStatus(id,v){const s=deployStatus();s[id]=v;localStorage.setItem(DEPLOY_STATUS_KEY,JSON.stringify(s));renderAll();saveToSheet(DEPLOY_STATUS_KEY,id);}
 const deployWeeks=()=>DEPLOY.months.flatMap(m=>m.weeks.map((w,i)=>({...w,n:i+1,month:m})));
 const weekTotal=w=>w.items.reduce((s,x)=>s+x.amt,0);
 const todayISO=()=>new Date().toLocaleDateString('en-CA');
@@ -1334,6 +1336,7 @@ function saveManual(){
   document.getElementById('st-manual').textContent='Guardado ✓';
   document.getElementById('st-manual').style.color='var(--green)';
   renderAll();
+  saveToSheet('plv2_manual');
 }
 // ─── DARK MODE ───
 function toggleDark(){
@@ -1561,7 +1564,10 @@ const SHEETS_SCOPE='https://www.googleapis.com/auth/spreadsheets';
 const SHEET_ID_KEY='plv2_sheet_id', PUBLISH_AUTO_KEY='plv2_publish_auto', SUMMARY_TAB='Resumen';
 let sheetsToken=null, sheetsTokenExp=0, sheetsTokenClient=null;
 const parseSheetId=v=>{const s=String(v||'').trim();return (s.match(/\/d\/([a-zA-Z0-9_-]{20,})/)||[])[1]||(/^[a-zA-Z0-9_-]{20,}$/.test(s)?s:'');};
-const summarySheetId=()=>localStorage.getItem(SHEET_ID_KEY)||'';
+// Hoja por defecto: así un navegador nuevo ya sabe de dónde leer la configuración. El ID solo no da acceso:
+// la hoja es privada y se lee con el permiso de Google de quien inició sesión.
+const DEFAULT_SHEET_ID='13Q1l2Zvkin57XrRIg3PR1G-_-JojZoTftOkNzFqGTlg';
+const summarySheetId=()=>localStorage.getItem(SHEET_ID_KEY)||DEFAULT_SHEET_ID;
 const publishAuto=()=>localStorage.getItem(PUBLISH_AUTO_KEY)!=='0';
 const sheetsTokenValid=()=>!!sheetsToken&&Date.now()<sheetsTokenExp-60000;
 // Debe llamarse dentro de un clic: la primera vez Google abre una ventana para dar permiso.
@@ -1579,10 +1585,53 @@ function requestSheetsToken(){
   });
 }
 // Markdown → filas: las tablas se separan en columnas; el resto va en la columna A sin marcas de negritas.
-function markdownToRows(md){
-  return md.split('\n').filter(l=>!/^\|\s*-{3}/.test(l)).map(l=>l.startsWith('|')
-    ?l.replace(/\\\|/g,'\u0000').split('|').slice(1,-1).map(c=>c.trim().replace(/\u0000/g,'|').replace(/\*\*/g,''))
-    :[l.replace(/\*\*/g,'')]);
+// kinds dice qué es cada fila (título, nota, encabezado o fila de tabla) para darle formato.
+const isTableSep=l=>/^\|\s*-{3}/.test(l||'');
+function markdownToSheet(md){
+  const lines=md.split('\n'), rows=[], kinds=[];
+  lines.forEach((l,i)=>{
+    if(isTableSep(l))return;
+    if(l.startsWith('|')){
+      rows.push(l.replace(/\\\|/g,'\u0000').split('|').slice(1,-1).map(c=>c.trim().replace(/\u0000/g,'|').replace(/\*\*/g,'')));
+      kinds.push(isTableSep(lines[i+1])?'th':'td');
+      return;
+    }
+    rows.push([l.replace(/\*\*/g,'')]);
+    kinds.push(l.startsWith('### ')?'h3':l.startsWith('## ')?'h2':l.startsWith('# ')?'h1':l.startsWith('> ')?'note':'text');
+  });
+  return {rows,kinds};
+}
+// Formato de la pestaña Resumen. Primero borra el formato anterior: las filas cambian de lugar en cada publicación.
+const NUMERIC_CELL=/^[-+]?\$?[-+]?[\d,]*\.?\d+\s*(%|pts?|x)?$/;
+function summaryFormatRequests(kinds,rows,sheetId){
+  const grey={red:0.4,green:0.4,blue:0.4};
+  const fmt=(r0,r1,c0,c1,f,fields)=>({repeatCell:{range:{sheetId,startRowIndex:r0,endRowIndex:r1,startColumnIndex:c0,endColumnIndex:c1},cell:{userEnteredFormat:f},fields}});
+  const width=Math.max(8,...rows.map(r=>r.length));
+  const reqs=[
+    {repeatCell:{range:{sheetId},cell:{userEnteredFormat:{}},fields:'userEnteredFormat'}},
+    {updateSheetProperties:{properties:{sheetId,gridProperties:{hideGridlines:true,frozenRowCount:1}},fields:'gridProperties.hideGridlines,gridProperties.frozenRowCount'}},
+    {updateDimensionProperties:{range:{sheetId,dimension:'COLUMNS',startIndex:0,endIndex:1},properties:{pixelSize:300},fields:'pixelSize'}},
+    {updateDimensionProperties:{range:{sheetId,dimension:'COLUMNS',startIndex:1,endIndex:width},properties:{pixelSize:140},fields:'pixelSize'}},
+  ];
+  kinds.forEach((k,i)=>{
+    const n=rows[i].length;
+    if(k==='h1')reqs.push(fmt(i,i+1,0,1,{textFormat:{bold:true,fontSize:16}},'userEnteredFormat.textFormat'));
+    else if(k==='h2')reqs.push(fmt(i,i+1,0,width,{backgroundColor:{red:0.91,green:0.94,blue:0.98},textFormat:{bold:true,fontSize:13}},'userEnteredFormat(backgroundColor,textFormat)'));
+    else if(k==='h3')reqs.push(fmt(i,i+1,0,1,{textFormat:{bold:true,fontSize:11}},'userEnteredFormat.textFormat'));
+    else if(k==='note')reqs.push(fmt(i,i+1,0,1,{textFormat:{italic:true,foregroundColor:grey}},'userEnteredFormat.textFormat'));
+    else if(k==='th')reqs.push(fmt(i,i+1,0,n,{backgroundColor:{red:0.95,green:0.95,blue:0.95},textFormat:{bold:true},
+      borders:{bottom:{style:'SOLID',color:grey}}},'userEnteredFormat(backgroundColor,textFormat,borders)'));
+    else if(k==='td'){
+      // Montos y porcentajes a la derecha; se agrupan las celdas contiguas para mandar menos peticiones.
+      let c=0;
+      while(c<n){
+        if(!NUMERIC_CELL.test(rows[i][c])){c++;continue;}
+        const s=c; while(c<n&&NUMERIC_CELL.test(rows[i][c]))c++;
+        reqs.push(fmt(i,i+1,s,c,{horizontalAlignment:'RIGHT'},'userEnteredFormat.horizontalAlignment'));
+      }
+    }
+  });
+  return reqs;
 }
 async function sheetsApi(path,method,body){
   const r=await fetch('https://sheets.googleapis.com/v4/spreadsheets/'+encodeURIComponent(summarySheetId())+path,
@@ -1591,31 +1640,48 @@ async function sheetsApi(path,method,body){
   if(!r.ok){if(r.status===401)sheetsToken=null; throw new Error(j.error?.message||('HTTP '+r.status));}
   return j;
 }
+// Crea las pestañas que falten. Devuelve ids = {título: sheetId numérico} y created = las que se crearon.
+async function ensureTabs(titles){
+  const ids=t=>Object.fromEntries((t.sheets||[]).map(x=>[x.properties.title,x.properties.sheetId]));
+  let have=ids(await sheetsApi('?fields=sheets.properties(title,sheetId)','GET'));
+  const created=titles.filter(t=>have[t]==null);
+  if(created.length){
+    const r=await sheetsApi(':batchUpdate','POST',{requests:created.map(title=>({addSheet:{properties:{title}}}))});
+    (r.replies||[]).forEach(x=>{const p=x.addSheet?.properties; if(p)have[p.title]=p.sheetId;});
+  }
+  return {ids:have,created};
+}
 async function publishSummary(){
   if(!summarySheetId())return setPublishStatus('warn','Resumen en Sheets: falta configurar la hoja');
   if(!sheetsTokenValid())return setPublishStatus('warn','Resumen en Sheets: presiona ↻ Actualizar para dar permiso');
   try{
     setPublishStatus('','Publicando Resumen en Sheets…');
-    const meta=await sheetsApi('?fields=sheets.properties.title','GET');
-    if(!(meta.sheets||[]).some(x=>x.properties.title===SUMMARY_TAB))
-      await sheetsApi(':batchUpdate','POST',{requests:[{addSheet:{properties:{title:SUMMARY_TAB}}}]});
+    const sheetId=(await ensureTabs([SUMMARY_TAB])).ids[SUMMARY_TAB];
     const stamp=new Date().toLocaleString('es-MX',{dateStyle:'medium',timeStyle:'short'});
-    const rows=[[`Escrito por el dashboard el ${stamp} · Se reemplaza completo en cada ↻ Actualizar: no lo edites a mano. Es el estado del portafolio y de la estrategia para agentes y para el portfolio manager.`],[''],...markdownToRows(buildPortfolioMarkdown())];
+    const md=markdownToSheet(buildPortfolioMarkdown());
+    const rows=[[`Escrito por el dashboard el ${stamp} · Se reemplaza completo en cada ↻ Actualizar: no lo edites a mano. Es el estado del portafolio y de la estrategia para agentes y para el portfolio manager.`],[''],...md.rows];
+    const kinds=['note','text',...md.kinds];
     await sheetsApi(`/values/${encodeURIComponent(SUMMARY_TAB)}:clear`,'POST',{});
     // RAW: los textos se guardan tal cual y nunca se interpretan como fórmulas.
     await sheetsApi(`/values/${encodeURIComponent(SUMMARY_TAB+'!A1')}?valueInputOption=RAW`,'PUT',{values:rows});
+    await sheetsApi(':batchUpdate','POST',{requests:summaryFormatRequests(kinds,rows,sheetId)});
     setPublishStatus('ok','Resumen publicado en Sheets '+new Date().toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit'}));
   }catch(e){setPublishStatus('err','No se publicó el Resumen en Sheets: '+e.message);}
 }
 function setPublishStatus(level,text){
   ['pubStatus','st-publish'].forEach(id=>{const el=document.getElementById(id);if(!el)return;el.textContent=text;el.className=({ok:'s-ok',err:'s-bad',warn:'s-warn'})[level]||'';});
 }
-// ↻ Actualizar: pide el permiso dentro del clic (si hace falta), recarga los datos y publica.
+// ↻ Actualizar: pide el permiso dentro del clic (si hace falta), trae la configuración de la hoja,
+// recarga los precios y publica el Resumen.
 function refreshClick(){
-  const tok=summarySheetId()&&publishAuto()
+  const tok=summarySheetId()
     ?requestSheetsToken().catch(e=>{setPublishStatus('err','Sin permiso para Sheets: '+e.message);return null;})
     :Promise.resolve(null);
-  fetchAll().then(async()=>{if(await tok)publishSummary();});
+  tok.then(async t=>{
+    if(t)await pullConfig();
+    await fetchAll();
+    if(t&&publishAuto())await publishSummary();
+  });
 }
 function publishNowClick(){
   if(!summarySheetId())return setPublishStatus('warn','Primero guarda la URL de tu hoja');
@@ -1627,6 +1693,170 @@ function saveSheetConfig(){
   localStorage.setItem(SHEET_ID_KEY,id);
   localStorage.setItem(PUBLISH_AUTO_KEY,document.getElementById('publishAuto').checked?'1':'0');
   setPublishStatus('ok','Guardado ✓');
+}
+
+// ─── CONFIGURACIÓN EN SHEETS (fuente única) ───
+// Lo que se captura en Configurar vive en dos pestañas de la hoja: "Configuración" (clave/valor) y "Mezclas".
+// localStorage queda como copia local: se usa al abrir (sin pedir permiso) y se reemplaza con lo de la hoja
+// en cada ↻ Actualizar. Al guardar algo en Configurar se parte de la hoja y solo se sobrescribe lo guardado.
+const CONFIG_TAB='Configuración', MIXES_TAB='Mezclas';
+const MARKET_CTX_KEY='plv2_market_ctx';
+const MANUAL_FIELDS=[
+  ['afore','AFORE México — valor actual (MXN)'],['aforeCost','AFORE — aportaciones netas (MXN)'],
+  ['rrspSc','RRSP Scotiabank — valor actual (CAD)'],['rrspScCost','RRSP Scotiabank — aportaciones netas (CAD)'],
+  ['rrspWs','RRSP WS — valor actual (CAD)'],['rrspWsCost','RRSP WS — aportaciones netas (CAD)'],
+  ['agf','AGF — valor actual (CAD)'],['agfCost','AGF — aportaciones netas (CAD)'],
+  ['cad','TC histórico para costos — CAD por 1 USD (p. ej. 1.42)'],['mxn','TC histórico para costos — USD por 1 MXN (p. ej. 0.054, no 18.5)'],
+  ['cashMx','Cash MXN — saldo actual (pesos)'],['cashMxCost','Cash MXN — capital depositado (pesos)'],
+  ['cashCa','Cash CAD — saldo actual'],['cashCaCost','Cash CAD — capital depositado'],
+];
+const FX_MODE_LABELS={live:'en vivo',fixed:'fijo'};
+const rng=(tab,a1)=>`'${tab}'!${a1}`;
+const cellNum=v=>{if(typeof v==='number')return v;const s=String(v??'').trim().replace(/[$,\s]/g,'');return s===''?null:Number(s);};
+const cellTxt=v=>String(v??'').trim();
+
+function configToRows(){
+  const m=loadManual(), st=deployStatus();
+  return [['Clave','Valor','Qué es'],
+    ...MANUAL_FIELDS.map(([k,l])=>[k,typeof m[k]==='number'?m[k]:'',l]),
+    ['modo_tc',FX_MODE_LABELS[fxMode()],'«en vivo»: el valor usa el tipo de cambio del día · «fijo»: usa los TC históricos de arriba'],
+    ['contexto_mercado',localStorage.getItem(MARKET_CTX_KEY)||'','Contexto de mercado para las recomendaciones IA (actualízalo cada semana o dos)'],
+    ...deployWeeks().map(w=>['despliegue_'+w.id,st[w.id]||'pendiente',`Plan de despliegue · mes ${w.month.n}, semana ${w.n} (${w.from} a ${w.to})`]),
+  ];
+}
+// Filas de la hoja → configuración. Una celda inválida se ignora (se conserva el valor local) y se reporta.
+function rowsToConfig(rows){
+  const out={manual:{},deploy:{},errors:[]};
+  (rows||[]).slice(1).forEach(r=>{
+    const key=cellTxt(r[0]), val=r[1], v=cellTxt(val).toLowerCase();
+    if(!key)return;
+    if(MANUAL_FIELDS.some(f=>f[0]===key)){
+      const n=cellNum(val);
+      if(n==null)return;
+      const fxBad=(key==='cad'&&!saneFx('CAD',1/n))||(key==='mxn'&&!saneFx('MXN',n));
+      if(!isFinite(n)||n<0||fxBad)out.errors.push(`Hoja «${CONFIG_TAB}»: «${key}» = ${cellTxt(val)} no es válido; se usa el último valor bueno.`);
+      else out.manual[key]=n;
+    }else if(key==='modo_tc'){
+      const mode=Object.keys(FX_MODE_LABELS).find(k=>k===v||FX_MODE_LABELS[k]===v);
+      if(mode)out.fxMode=mode;
+      else if(v)out.errors.push(`Hoja «${CONFIG_TAB}»: modo_tc debe ser «en vivo» o «fijo» (dice «${cellTxt(val)}»).`);
+    }else if(key==='contexto_mercado'){
+      if(cellTxt(val))out.marketCtx=cellTxt(val);
+    }else if(key.startsWith('despliegue_')){
+      const id=key.slice('despliegue_'.length);
+      const state=Object.keys(DEPLOY_STATES).find(k=>k===v||DEPLOY_STATES[k].toLowerCase()===v);
+      if(state)out.deploy[id]=state;
+      else if(v)out.errors.push(`Hoja «${CONFIG_TAB}»: ${key} debe ser ${Object.keys(DEPLOY_STATES).join(', ')} (dice «${cellTxt(val)}»).`);
+    }else out.errors.push(`Hoja «${CONFIG_TAB}»: la clave «${key}» no se reconoce; se ignora.`);
+  });
+  return out;
+}
+function mixesToRows(){
+  const rows=[['Ticker','Fecha','Fuente','Componente','%','Tipo']];
+  loadMixes().forEach(m=>(m.parts||[]).forEach(x=>rows.push([m.ticker,m.date||'',m.source||'',x.label||'',parseFloat(x.pct)||0,COMPONENT_TYPES[x.type]?.label||x.type])));
+  return rows;
+}
+// Una fila por componente. Si la columna Ticker va vacía, el componente es de la mezcla de la fila anterior.
+function rowsToMixes(rows){
+  const mixes=[], errors=[]; let cur=null;
+  (rows||[]).slice(1).forEach((r,i)=>{
+    const t=cellTxt(r[0]).toUpperCase(), label=cellTxt(r[3]), pct=cellNum(r[4]), typ=cellTxt(r[5]);
+    if(!t&&!label&&pct==null&&!typ)return;
+    const ticker=t||cur?.ticker;
+    if(!ticker)return errors.push(`Hoja «${MIXES_TAB}», fila ${i+2}: falta el ticker; se ignora.`);
+    cur=mixes.find(m=>m.ticker===ticker)||(mixes.push({ticker,date:'',source:'',parts:[]}),mixes[mixes.length-1]);
+    if(!cur.date&&cellTxt(r[1]))cur.date=cellTxt(r[1]);
+    if(!cur.source&&cellTxt(r[2]))cur.source=cellTxt(r[2]);
+    const type=Object.keys(COMPONENT_TYPES).find(k=>k===typ||COMPONENT_TYPES[k].label.toLowerCase()===typ.toLowerCase());
+    if(!type)return errors.push(`Hoja «${MIXES_TAB}», fila ${i+2} (${ticker}): el tipo «${typ}» no existe; se ignora ese componente.`);
+    if(pct==null||!isFinite(pct)||pct<0)return errors.push(`Hoja «${MIXES_TAB}», fila ${i+2} (${ticker}): el % no es un número; se ignora ese componente.`);
+    cur.parts.push({label,pct,type});
+  });
+  return {mixes,errors};
+}
+// Aplica lo leído a la copia local. mx=null: no se tocan las mezclas.
+function applyConfig(cfg,mx){
+  localStorage.setItem('plv2_manual',JSON.stringify({...loadManual(),...cfg.manual}));
+  if(cfg.fxMode)localStorage.setItem(FX_MODE_KEY,cfg.fxMode);
+  if(cfg.marketCtx)localStorage.setItem(MARKET_CTX_KEY,cfg.marketCtx);
+  let st={}; try{st=JSON.parse(localStorage.getItem(DEPLOY_STATUS_KEY)||'{}');}catch(e){}
+  localStorage.setItem(DEPLOY_STATUS_KEY,JSON.stringify({...st,...cfg.deploy}));
+  if(mx)localStorage.setItem(MIX_KEY,JSON.stringify(mx.mixes));
+  configAlerts=[...cfg.errors,...(mx?.errors||[])].map(msg=>({type:'warn',msg}));
+}
+function refreshFromLocal(){
+  applyManual(loadManual()); revalue(); renderAll();
+  if(document.getElementById('view-setup')?.classList.contains('active'))sv('setup');
+}
+// Lee la hoja (si la pestaña existía) y la aplica a la copia local. Crea las pestañas que falten.
+async function readConfigFromSheet(){
+  const {ids,created}=await ensureTabs([CONFIG_TAB,MIXES_TAB]);
+  if(!created.includes(CONFIG_TAB)){
+    const q=['ranges='+encodeURIComponent(rng(CONFIG_TAB,'A:C')),'ranges='+encodeURIComponent(rng(MIXES_TAB,'A:F')),
+      'valueRenderOption=UNFORMATTED_VALUE','dateTimeRenderOption=FORMATTED_STRING'].join('&');
+    const [c,m]=(await sheetsApi('/values:batchGet?'+q,'GET')).valueRanges||[];
+    applyConfig(rowsToConfig(c?.values),created.includes(MIXES_TAB)?null:rowsToMixes(m?.values));
+  }
+  return {ids,created};
+}
+async function writeConfigToSheet(ids){
+  const c=configToRows(), m=mixesToRows();
+  await sheetsApi('/values:batchClear','POST',{ranges:[rng(CONFIG_TAB,'A:C'),rng(MIXES_TAB,'A:F')]});
+  await sheetsApi('/values:batchUpdate','POST',{valueInputOption:'RAW',data:[{range:rng(CONFIG_TAB,'A1'),values:c},{range:rng(MIXES_TAB,'A1'),values:m}]});
+  await sheetsApi(':batchUpdate','POST',{requests:configFormatRequests(ids[CONFIG_TAB],ids[MIXES_TAB],c)});
+}
+// Encabezados, anchos y listas desplegables para que no se escriba un valor que el dashboard no entienda.
+function configFormatRequests(cfgId,mixId,cRows){
+  const list=(sheetId,r0,r1,c0,vals)=>({setDataValidation:{range:{sheetId,startRowIndex:r0,endRowIndex:r1,startColumnIndex:c0,endColumnIndex:c0+1},
+    rule:{condition:{type:'ONE_OF_LIST',values:vals.map(v=>({userEnteredValue:v}))},strict:true,showCustomUi:true}}});
+  const width=(sheetId,px)=>px.map((p,i)=>({updateDimensionProperties:{range:{sheetId,dimension:'COLUMNS',startIndex:i,endIndex:i+1},properties:{pixelSize:p},fields:'pixelSize'}}));
+  const head=sheetId=>[
+    {setDataValidation:{range:{sheetId}}},
+    {repeatCell:{range:{sheetId,startRowIndex:0,endRowIndex:1},cell:{userEnteredFormat:{backgroundColor:{red:0.95,green:0.95,blue:0.95},textFormat:{bold:true}}},fields:'userEnteredFormat(backgroundColor,textFormat)'}},
+    {updateSheetProperties:{properties:{sheetId,gridProperties:{frozenRowCount:1}},fields:'gridProperties.frozenRowCount'}},
+  ];
+  const reqs=[...head(cfgId),...head(mixId),...width(cfgId,[170,240,560]),...width(mixId,[90,110,320,230,70,220]),
+    {repeatCell:{range:{sheetId:cfgId,startRowIndex:1,startColumnIndex:2,endColumnIndex:3},cell:{userEnteredFormat:{textFormat:{foregroundColor:{red:0.4,green:0.4,blue:0.4}}}},fields:'userEnteredFormat.textFormat'}},
+    {repeatCell:{range:{sheetId:cfgId,startRowIndex:1,startColumnIndex:1,endColumnIndex:2},cell:{userEnteredFormat:{wrapStrategy:'WRAP',horizontalAlignment:'LEFT'}},fields:'userEnteredFormat(wrapStrategy,horizontalAlignment)'}},
+    // Fecha como texto: así "2026-10-31" no se convierte en fecha con el formato regional de la hoja.
+    {repeatCell:{range:{sheetId:mixId,startRowIndex:1,startColumnIndex:1,endColumnIndex:2},cell:{userEnteredFormat:{numberFormat:{type:'TEXT'}}},fields:'userEnteredFormat.numberFormat'}},
+    list(mixId,1,1000,5,Object.values(COMPONENT_TYPES).map(t=>t.label)),
+  ];
+  cRows.forEach((r,i)=>{
+    if(r[0]==='modo_tc')reqs.push(list(cfgId,i,i+1,1,Object.values(FX_MODE_LABELS)));
+    if(String(r[0]).startsWith('despliegue_'))reqs.push(list(cfgId,i,i+1,1,Object.keys(DEPLOY_STATES)));
+  });
+  return reqs;
+}
+// ↻ Actualizar: trae la configuración de la hoja. Si la hoja aún no la tiene, la crea con la de este navegador.
+async function pullConfig(){
+  try{
+    const {ids,created}=await readConfigFromSheet();
+    if(created.length)await writeConfigToSheet(ids);
+    if(created.includes(CONFIG_TAB))setPublishStatus('ok','Se creó la pestaña Configuración en tu hoja con los valores de este navegador');
+    refreshFromLocal();
+    return true;
+  }catch(e){setPublishStatus('err','No se leyó la configuración de la hoja (se usa la copia local): '+e.message);return false;}
+}
+// Guardar en Configurar: se parte de lo que hay en la hoja y solo se sobrescribe lo que se acaba de guardar
+// (key; con id, solo esa entrada, p. ej. una semana del despliegue). Debe llamarse dentro del clic.
+function saveToSheet(key,id){
+  if(!summarySheetId())return;
+  const mine=localStorage.getItem(key);
+  const tok=requestSheetsToken();
+  (async()=>{
+    try{
+      await tok;
+      setPublishStatus('','Guardando configuración en tu hoja…');
+      const {ids}=await readConfigFromSheet();
+      if(id!=null){let o={};try{o=JSON.parse(localStorage.getItem(key)||'{}');}catch(e){} o[id]=JSON.parse(mine||'{}')[id]; localStorage.setItem(key,JSON.stringify(o));}
+      else if(mine==null)localStorage.removeItem(key);
+      else localStorage.setItem(key,mine);
+      await writeConfigToSheet(ids);
+      refreshFromLocal();
+      setPublishStatus('ok','Configuración guardada en tu hoja '+new Date().toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit'}));
+    }catch(e){setPublishStatus('err','No se guardó en la hoja (quedó solo en este navegador): '+e.message);}
+  })();
 }
 
 // ─── HISTORY ───
@@ -1724,6 +1954,7 @@ function saveMarketCtx(){
   localStorage.setItem('plv2_market_ctx',val);
   document.getElementById('st-mktctx').textContent='Guardado ✓';
   document.getElementById('st-mktctx').style.color='var(--green)';
+  saveToSheet(MARKET_CTX_KEY);
 }
 
 function gotoSetup(){sv('setup');}
@@ -1733,6 +1964,7 @@ function toggleFxFixed(fixed){
   localStorage.setItem(FX_MODE_KEY,fixed?'fixed':'live');
   if(!fixed&&!FX.CAD&&!FX.MXN) updateFx(null).then(()=>{revalue();renderFxStatus();renderAll();});
   revalue(); renderFxStatus(); renderAll();
+  saveToSheet(FX_MODE_KEY);
 }
 function renderFxStatus(){
   document.getElementById('fxFixed').checked=fxMode()==='fixed';
@@ -1791,6 +2023,7 @@ function saveMixes(){
   st.textContent=bad.length?`Guardado. No se usarán (no suman 100%): ${bad.join(', ')}`:'Guardado ✓';
   st.style.color=bad.length?'var(--amber)':'var(--green)';
   renderMixEditor(); renderAll();
+  saveToSheet(MIX_KEY);
 }
 function resetMixes(){
   if(!confirm('¿Restaurar la mezcla oficial de AGF (31 oct 2026)? Se reemplazan las mezclas guardadas.'))return;
@@ -1798,6 +2031,7 @@ function resetMixes(){
   mixDraft=JSON.parse(JSON.stringify(loadMixes()));
   document.getElementById('st-mix').textContent='Restaurada ✓';
   renderMixEditor(); renderAll();
+  saveToSheet(MIX_KEY);
 }
 
 // ─── NAV ───
@@ -1872,7 +2106,15 @@ function startApp(){
   }
   if(sheetUrl)fetchAll();else setStatus('','Configura Google Sheets en la pestaña Configurar');
   // Recarga cada 5 min en horario de mercado; publica en Sheets solo si ya hay permiso (no abre ventanas).
-  setInterval(()=>{const h=new Date().getHours();if(h>=8&&h<17&&sheetUrl)fetchAll().then(()=>{if(summarySheetId()&&publishAuto()&&sheetsTokenValid())publishSummary();});},5*60*1000);
+  // También relee la configuración de la hoja si ya hay permiso.
+  setInterval(async()=>{
+    const h=new Date().getHours();
+    if(!(h>=8&&h<17&&sheetUrl))return;
+    const t=summarySheetId()&&sheetsTokenValid();
+    if(t)await pullConfig();
+    await fetchAll();
+    if(t&&publishAuto()&&sheetsTokenValid())publishSummary();
+  },5*60*1000);
 }
 
 renderNav('overview');
