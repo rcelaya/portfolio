@@ -42,11 +42,12 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);font-size:14
 .card-val{font-size:20px;font-weight:700;color:var(--text);}
 .card-sub{font-size:11px;color:var(--muted);margin-top:2px;}
 .up{color:var(--green);}.down{color:var(--red);}
-.tbl-wrap{background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden;margin-bottom:20px;}
+/* overflow:clip recorta las esquinas sin crear contenedor de scroll, así el encabezado sticky se pega a la ventana */
+.tbl-wrap{background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden;overflow:clip;margin-bottom:20px;}
 .tbl-bar{display:flex;align-items:center;justify-content:space-between;padding:13px 18px 11px;border-bottom:1px solid var(--border);}
 .tbl-bar span{font-size:11px;font-family:var(--mono);color:var(--muted);text-transform:uppercase;letter-spacing:.07em;}
 table{width:100%;border-collapse:collapse;}
-thead th{font-size:10px;font-family:var(--mono);color:var(--muted);text-transform:uppercase;letter-spacing:.07em;padding:9px 16px;text-align:left;border-bottom:1px solid var(--border);font-weight:400;}
+thead th{font-size:10px;font-family:var(--mono);color:var(--muted);text-transform:uppercase;letter-spacing:.07em;padding:9px 16px;text-align:left;font-weight:400;position:sticky;top:0;z-index:2;background:var(--surface);box-shadow:inset 0 -1px 0 var(--border);}
 thead th[onclick]:hover{color:var(--text);background:var(--surface2);}
 tbody tr{border-bottom:1px solid var(--border);transition:background .1s;}
 tbody tr:last-child{border-bottom:none;}
@@ -168,6 +169,8 @@ tbody td{padding:10px 16px;font-size:13px;}
   .nav{gap:0;overflow-x:auto;flex-wrap:nowrap;padding-bottom:0;-webkit-overflow-scrolling:touch;}
   .nb{white-space:nowrap;padding:8px 10px;font-size:10px;}
   .tbl-wrap{overflow-x:auto;}
+  /* En celular la tabla scrollea en ambos ejes dentro de su caja, así el encabezado sigue fijo */
+  #view-positions .tbl-wrap{max-height:75vh;overflow:auto;}
   table{min-width:580px;}
   .alloc-sec .ar{flex-wrap:wrap;gap:4px;}
   .al{width:100%;margin-bottom:2px;}
