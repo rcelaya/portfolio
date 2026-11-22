@@ -131,6 +131,8 @@ const RETIRO_ACCOUNTS = ['RETIRO'];
 const CAD_PRICED_TICKERS = [];
 // Reclasificaciones de categoría sobre lo que manda la hoja.
 const CAT_OVERRIDES = {VNQ:'realestate'};
+// La hoja marca como "metals" tanto el oro como otros metales; el oro se separa para mostrarlo como tal.
+const GOLD_TICKERS = ['GLD','IAU','GLDM','SGOL'];
 
 // ─── STATIC DATA ───
 // Respaldo si la hoja no responde. Precios en USD salvo que se indique ccy (priceN/costN en esa moneda).
@@ -197,8 +199,8 @@ const totalActive= ()=>activePos().reduce((s,p)=>s+p.valueUSD,0);
 const totalRetiro= ()=>retiroPos().reduce((s,p)=>s+p.valueUSD,0);
 const totalAll   = ()=>positions.reduce((s,p)=>s+p.valueUSD,0);
 
-const catClass = c=>({index:'ci',tech:'ct',crypto:'cc',intl:'cl',defense:'cd',hedge:'ch',bio:'cb',retiro:'cd',cash:'cm',realestate:'cd',bonds:'cm'}[c]||'ci');
-const catLabel = c=>({index:'Index',tech:'Tech',crypto:'Cripto',intl:'Internacional',defense:'Defensa',hedge:'Oro',bio:'Biotech',retiro:'Retiro',cash:'Efectivo',realestate:'Bienes raíces',bonds:'Renta fija (bonos)'}[c]||c);
+const catClass = c=>({index:'ci',tech:'ct',crypto:'cc',intl:'cl',defense:'cd',hedge:'ch',bio:'cb',retiro:'cd',cash:'cm',realestate:'cd',bonds:'cm',metals:'ch'}[c]||'ci');
+const catLabel = c=>({index:'Index',tech:'Tech',crypto:'Cripto',intl:'Internacional',defense:'Defensa',hedge:'Oro',metals:'Metales',bio:'Biotech',retiro:'Retiro',cash:'Efectivo',realestate:'Bienes raíces',bonds:'Renta fija (bonos)'}[c]||c);
 
 // ─── TIPOS DE CAMBIO ───
 // Valor = tipo de cambio del día. Costo = tipo de cambio histórico (el de Configurar), para que el P/L
@@ -306,6 +308,7 @@ function resetPositions(){
 const STRATEGY_DATE='13 nov 2026';
 // Cambios a la estrategia, del más reciente al más antiguo. Se muestran en Estrategia y en el export.
 const STRATEGY_CHANGES=[
+  {date:'22 nov 2026',text:'La clase "Oro" pasa a ser "Oro y metales (hedge)": además de GLD incluye la plata (SLV) y el cobre (ICOP). La meta de 5% no cambia; las compras siguen en GLD.'},
   {date:'21 nov 2026',text:'Acciones EE.UU. 42% → 45% e Internacional 18% → 15%, para dar más peso al motor de crecimiento (EE.UU.) sin dejar de diversificar. Se adopta el plan de despliegue de $30,000 en 3 meses y la meta de correlación pasa a medirse sin efectivo. Acordado con el portfolio manager.'},
 ];
 // Meta de correlación: se mide con la correlación de lo invertido (sin efectivo).
@@ -315,7 +318,7 @@ const ASSET_CLASSES=[
   {key:'us',    label:'Acciones EE.UU.',          target:45, color:'#1a50a0', note:'Motor de crecimiento: índices + acciones individuales de EE.UU.'},
   {key:'intl',  label:'Acciones internacionales', target:15, color:'#5a3fa0', note:'Desarrollados y emergentes fuera de EE.UU.'},
   {key:'crypto',label:'Cripto',                   target:25, color:'#b53a2f', note:'Apuesta de convicción: BTC como reserva de valor; incluye COIN y BMNR'},
-  {key:'gold',  label:'Oro',                      target:5,  color:'#854f0b', note:'Cobertura ante caídas e inflación'},
+  {key:'gold',  label:'Oro y metales (hedge)',    target:5,  color:'#854f0b', note:'Cobertura: GLD + metales (plata SLV, cobre ICOP)'},
   {key:'fixed', label:'Renta fija / Cash',        target:10, color:'#6a7080', note:'Colchón de liquidez; MXN rinde 6.5% fijo'},
 ];
 // ─── MEZCLAS POR CLASE (look-through) ───
@@ -325,7 +328,7 @@ const COMPONENT_TYPES={
   us:    {label:'Acciones EE.UU.',          cls:'us',     bucket:'index'},
   intl:  {label:'Acciones internacionales', cls:'intl',   bucket:'intl'},
   crypto:{label:'Cripto',                   cls:'crypto', bucket:'crypto'},
-  gold:  {label:'Oro',                      cls:'gold',   bucket:'hedge'},
+  gold:  {label:'Oro y metales',            cls:'gold',   bucket:'hedge'},
   bonds: {label:'Renta fija (bonos)',       cls:'fixed',  bucket:'bonds'},
   cash:  {label:'Efectivo',                 cls:'fixed',  bucket:'cash'},
 };
@@ -447,13 +450,13 @@ function costCheck(t){
 
 function assetClass(p){
   if(CLASS_OVERRIDES[p.ticker])return CLASS_OVERRIDES[p.ticker];
-  return ({crypto:'crypto',hedge:'gold',cash:'fixed',intl:'intl'}[p.cat])||'us';
+  return ({crypto:'crypto',hedge:'gold',metals:'gold',cash:'fixed',intl:'intl'}[p.cat])||'us';
 }
 // Escenario 'before' = cómo calculaba el dashboard antes del look-through: sin mezclas, categoría tal como
 // la manda la hoja, TC fijo de Configurar y precios en CAD de la hoja tomados como USD.
 function oldAssetClass(p){
   if(p.ticker==='TSM')return 'intl';
-  return ({crypto:'crypto',hedge:'gold',cash:'fixed',intl:'intl'}[p.catSheet||p.cat])||'us';
+  return ({crypto:'crypto',hedge:'gold',metals:'gold',cash:'fixed',intl:'intl'}[p.catSheet||p.cat])||'us';
 }
 function posValue(p,scn){
   if(scn!=='before')return p.valueUSD;
@@ -555,7 +558,7 @@ async function fetchAll(){
     json=await res.json();
     if(json.ok&&Array.isArray(json.positions)){
       json.positions.filter(p=>p.ticker&&p.precio>0&&!FX_SHEET_TICKERS[fxSheetKey(p.ticker)]).forEach(lp=>{
-        const catSheet = (lp.categoria==='metals'||lp.categoria==='hedge') ? 'hedge' : (lp.categoria||'index');
+        const catSheet = (lp.categoria==='metals'||lp.categoria==='hedge') ? (GOLD_TICKERS.includes(lp.ticker)?'hedge':'metals') : (lp.categoria||'index');
         const cat = CAT_OVERRIDES[lp.ticker]||catSheet;
         const units = parseFloat(lp.acciones)||1;
         const cost  = parseFloat(lp.costBase)||lp.precio;
@@ -644,7 +647,7 @@ function renderOverview(){
     <div class="card"><div class="card-lbl">P/L total activo</div><div class="card-val ${pnlPct>=0?'up':'down'}">${fmtPct(pnlPct)}</div><div class="card-sub ${pnlPct>=0?'up':'down'}">${sgn(pnlAmt)}</div><div class="card-sub">inversión ${sgn(pnlInv)} · tipo de cambio ${sgn(pnlFx)}</div></div>
     <div class="card"><div class="card-lbl">Correlación de lo invertido</div><div class="card-val ${wInv>=0.80?'down':wInv>=CORR_TARGET?'s-warn':'s-ok'}">${wInv.toFixed(2)}</div><div class="card-sub">sin efectivo · meta &lt; ${CORR_TARGET} · con efectivo ${wCorr.toFixed(2)}</div></div>
     <div class="card"><div class="card-lbl">Cripto</div><div class="card-val s-${targetStatus('crypto').level}">${cryptoPct.toFixed(1)}%</div><div class="card-sub">techo ${ceil}% · meta 25%</div></div>
-    <div class="card"><div class="card-lbl">Oro</div><div class="card-val s-${targetStatus('gold').level}">${goldPct.toFixed(1)}%</div><div class="card-sub">meta 5%</div></div>`;
+    <div class="card"><div class="card-lbl">Oro y metales</div><div class="card-val s-${targetStatus('gold').level}">${goldPct.toFixed(1)}%</div><div class="card-sub">meta 5%</div></div>`;
 
   const accts=['MX','CA','CRYPTO','BITSO','AGF'];
   const colors={'MX':'#1a50a0','CA':'#b53a2f','CRYPTO':'#8a5f0a','BITSO':'#c45c0a','AGF':'#0d7a5a'};
@@ -893,7 +896,7 @@ function renderCompare(){
 
 // ─── CORRELATION (active only) ───
 // Correlación supuesta de cada grupo contra el S&P 500. Renta fija (bonos) y efectivo son las más bajas.
-const CAT_CORR={index:0.98,tech:0.87,crypto:0.52,intl:0.82,defense:0.68,hedge:0.05,bio:0.55,cash:0.01,realestate:0.75,bonds:0.15};
+const CAT_CORR={index:0.98,tech:0.87,crypto:0.52,intl:0.82,defense:0.68,hedge:0.05,bio:0.55,cash:0.01,realestate:0.75,bonds:0.15,metals:0.35};
 // Valor por categoría con look-through: la categoría de la posición o, si tiene mezcla, la de cada componente
 // (p. ej. AGF reparte su parte canadiense a Internacional y sus bonos a Renta fija). Lo usan todas las vistas por categoría.
 function catBuckets(scn,excludeCash){
@@ -923,7 +926,7 @@ function renderCorrelation(){
   document.getElementById('corrCards').innerHTML=`
     <div class="card"><div class="card-lbl">Correlación interna</div><div class="card-val" style="color:${corrCol(wc)}">${wc.toFixed(2)}</div><div class="card-sub">${corrTxt(wc)} · incluye efectivo · solo referencia</div></div>
     <div class="card"><div class="card-lbl">Correlación de lo invertido</div><div class="card-val" style="color:${corrCol(wi)}">${wi.toFixed(2)}</div><div class="card-sub">${corrTxt(wi)} · sin efectivo · meta &lt; ${CORR_TARGET}</div></div>
-    <div class="card"><div class="card-lbl">Oro (corr &lt;0.3)</div><div class="card-val" style="color:${hp>=5-REBAL_BAND?'var(--green)':'var(--red)'}">${hp.toFixed(1)}%</div><div class="card-sub">GLD · meta 5%</div></div>
+    <div class="card"><div class="card-lbl">Oro y metales (hedge)</div><div class="card-val" style="color:${hp>=5-REBAL_BAND?'var(--green)':'var(--red)'}">${hp.toFixed(1)}%</div><div class="card-sub">GLD + SLV + ICOP · meta 5%</div></div>
     <div class="card"><div class="card-lbl">Crypto</div><div class="card-val" style="color:${cp<=8?'var(--green)':cp<=12?'var(--amber)':'var(--red)'}">${cp.toFixed(1)}%</div><div class="card-sub">Corr 0.52→0.75 en crisis</div></div>`;
   const cur=[
     Math.round(10+(1-(byCat.tech||0)/t)*40),
@@ -1028,7 +1031,7 @@ async function generateRecs(){
 
     const s2=await callProxy([{role:'user',content:`Asesor de inversiones. Respeta la estrategia del inversionista; no la cambies.
 
-ESTRATEGIA (acordada con el portfolio manager, cambio del ${STRATEGY_CHANGES[0].date}): horizonte 15 anos. Metas: ${metas} (renta fija/cash maximo ${FIXED_MAX}%). Banda +-${REBAL_BAND} pts. Cripto es apuesta de conviccion: techo ${ceil}% este ano bajando a 25% en 2031, no se vende en perdida y no recibe dinero nuevo; solo se vende BTC con ganancia si rebasa el techo. Altcoins fuera de la tesis. Se acumula en VEA, VTI y GLD; GOOG, META y NVDA solo si cotizan debajo de su costo promedio (si no, a VTI). Meta de correlacion < ${CORR_TARGET} medida sin efectivo. Cash MXN rinde 6.5% fijo.
+ESTRATEGIA (acordada con el portfolio manager; cambios del ${STRATEGY_CHANGES.map(c=>c.date).reverse().join(' y ')}): horizonte 15 anos. Metas: ${metas} (renta fija/cash maximo ${FIXED_MAX}%). Banda +-${REBAL_BAND} pts. Cripto es apuesta de conviccion: techo ${ceil}% este ano bajando a 25% en 2031, no se vende en perdida y no recibe dinero nuevo; solo se vende BTC con ganancia si rebasa el techo. Altcoins fuera de la tesis. Se acumula en VEA, VTI y GLD; GOOG, META y NVDA solo si cotizan debajo de su costo promedio (si no, a VTI). Meta de correlacion < ${CORR_TARGET} medida sin efectivo. Cash MXN rinde 6.5% fijo.
 
 ACTUAL: ${actual}
 Compras de esta semana: ${plan}
@@ -1210,7 +1213,7 @@ const STRATEGY_RULES=[
   ['ETH / stETH','Pendiente decidir si forman parte de la tesis de reserva de valor. Mientras tanto, no se agregan.'],
   ['Bandas de rebalanceo',`Una clase está en meta si está a ±${REBAL_BAND} pts. Debajo de la banda, el plan de compras la prioriza; arriba, se deja de comprar.`],
   ['Correlación',`Meta < ${CORR_TARGET} medida con la correlación de lo invertido (sin efectivo). La que incluye efectivo es solo referencia: el cash la baja artificialmente.`],
-  ['Oro','5% como cobertura ante caídas e inflación, no como apuesta.'],
+  ['Oro y metales','5% como cobertura ante caídas e inflación, no como apuesta. Incluye GLD y otros metales (plata SLV, cobre ICOP); se acumula en GLD.'],
   ['Renta fija / Cash','10% (máximo 15%). El cash MXN rinde 6.5% fijo. Si pasa de 15%, se despliega hacia los huecos.'],
   ['Revisión','Revisar esta página cada trimestre o cuando cambie algo importante (ingresos, horizonte, objetivos).'],
 ];
