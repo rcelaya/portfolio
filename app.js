@@ -270,9 +270,13 @@ function fxAlerts(){
 
 // ─── VALUACIÓN ───
 // P/L total = P/L por inversión (movimiento en moneda local, al TC histórico) + P/L por tipo de cambio.
+// El efectivo no tiene un TC histórico real (no hay fecha de depósito): su costo se convierte al mismo TC
+// que su valor, así su P/L solo refleja el rendimiento nominal (p. ej. el 6.5% en MXN) y no un efecto cambiario
+// inventado. El tipo de cambio sí sigue moviendo su valor en USD.
+const FX_NEUTRAL_CATS=['cash'];
 function revalue(){
   positions.forEach(p=>{
-    const live=liveRate(p.ccy), hist=histRate(p.ccy);
+    const live=liveRate(p.ccy), neutral=FX_NEUTRAL_CATS.includes(p.cat), hist=neutral?live:histRate(p.ccy);
     p.priceUSD=p.priceN*live;
     p.valueUSD=p.units*p.priceUSD;
     p.costUSD=p.costN*hist;
@@ -1329,7 +1333,7 @@ function buildPortfolioMarkdown(){
     `## 14. Limitaciones de los datos`,
     ``,
     `- Las posiciones con fuente "estático" usan un precio de respaldo que puede estar desactualizado.`,
-    `- Tipos de cambio: el VALOR de lo que está en CAD y MXN (ZSP, XSP, AGF-CA, cash, RRSP, AFORE) se convierte con el tipo de cambio del día (hoja con GOOGLEFINANCE o, de respaldo, Frankfurter/BCE; si fallan, el último valor bueno). El COSTO usa el tipo de cambio histórico de Configurar, porque no hay fecha por compra; por eso el P/L se separa en "por inversión" y "por tipo de cambio".`,
+    `- Tipos de cambio: el VALOR de lo que está en CAD y MXN (ZSP, XSP, AGF-CA, cash, RRSP, AFORE) se convierte con el tipo de cambio del día (hoja con GOOGLEFINANCE o, de respaldo, Frankfurter/BCE; si fallan, el último valor bueno). El COSTO usa el tipo de cambio histórico de Configurar, porque no hay fecha por compra; por eso el P/L se separa en "por inversión" y "por tipo de cambio". Excepción: el efectivo (CASH-MX, CASH-CA) convierte su costo al TC del día, así su P/L es solo el rendimiento nominal.`,
     `- ZSP y XSP se tratan como cotizados en CAD en la hoja (o según la columna "moneda", si existe).`,
     ...loadMixes().filter(mixValid).map(m=>`- La mezcla de ${m.ticker} viene de: ${m.source||'sin fuente'}, con fecha ${m.date||'s/f'}. Se actualiza a mano cada trimestre.`),
     `- TSM se clasifica como internacional; VNQ (REITs de EE.UU.) como bienes raíces dentro de Acciones EE.UU.`,
